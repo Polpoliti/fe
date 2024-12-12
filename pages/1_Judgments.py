@@ -1,29 +1,63 @@
 import streamlit as st
 import pymongo
-import requests
-from io import BytesIO
 from dotenv import load_dotenv
 import os
-from urllib.parse import urlparse
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
 
-# Get database connection details
+# Database details
 MONGO_URI = os.getenv('MONGO_URI')
 DATABASE_NAME = os.getenv('DATABASE_NAME')
+COLLECTION_NAME = "judgments"
 
-MIME_TYPES = {
-    '.pdf': 'application/pdf',
-    '.doc': 'application/msword',
-    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-}
+st.set_page_config(page_title="Mini Lawyer - Judgments", page_icon="📜", layout="wide")
 
-st.set_page_config(page_title="Mini Lawyer - Judgments", page_icon="⚖️", layout="wide")
+# Custom CSS for Styling
+st.markdown("""
+    <style>
+        .law-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0px 2px 4px rgba(0,0,0,0.1);
+            background-color: #f9f9f9;
+        }
+        .law-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+        }
+        .law-meta {
+            font-size: 14px;
+            color: #555;
+        }
+        .law-actions {
+            margin-top: 15px;
+        }
+        .pagination-controls {
+            margin-top: 20px;
+            text-align: center;
+        }
+        .stButton>button {
+            background-color: #4CAF50;
+            color: white;
+            font-size: 14px;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .stButton>button:hover {
+            background-color: #45a049;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 
-# Reuse the same custom CSS from main.py
-
+# Initialize MongoDB connection
 def init_connection():
     try:
         return pymongo.MongoClient(MONGO_URI)
@@ -32,79 +66,176 @@ def init_connection():
         return None
 
 
-def get_file_extension_and_mime(url):
-    path = urlparse(url).path.lower()
-    for ext, mime_type in MIME_TYPES.items():
-        if path.endswith(ext):
-            return ext, mime_type
-    return '.pdf', 'application/pdf'
-
-
-def download_file(url):
+# Query distinct ProcedureType values
+def get_procedure_types(client):
     try:
-        response = requests.get(url)
-        if response.status_code == 200:
-            return BytesIO(response.content)
-        else:
-            st.error(f"Failed to download file: HTTP {response.status_code}")
-            return None
+        db = client[DATABASE_NAME]
+        collection = db[COLLECTION_NAME]
+        procedure_types = collection.distinct("ProcedureType")
+        return sorted(procedure_types)  # Sort the options alphabetically
     except Exception as e:
-        st.error(f"Error downloading file: {str(e)}")
+        st.error(f"Error fetching ProcedureType values: {str(e)}")
+        return []
+
+
+# Query laws with pagination and filtering
+def query_laws(client, filters=None, skip=0, limit=10):
+    try:
+        db = client[DATABASE_NAME]
+        collection = db[COLLECTION_NAME]
+        pipeline = []
+
+        # Apply filters
+        if filters:
+            pipeline.append({"$match": filters})
+
+        # Sort by CaseNumber (or other criteria)
+        pipeline.append({"$sort": {"CaseNumber": 1}})
+
+        # Skip and limit for pagination
+        pipeline.append({"$skip": skip})
+        pipeline.append({"$limit": limit})
+
+        laws = list(collection.aggregate(pipeline))
+        return laws
+    except Exception as e:
+        st.error(f"Error querying laws: {str(e)}")
+        return []
+
+
+# Count total laws with filters
+def count_laws(client, filters=None):
+    try:
+        db = client[DATABASE_NAME]
+        collection = db[COLLECTION_NAME]
+        if filters:
+            return collection.count_documents(filters)
+        return collection.estimated_document_count()
+    except Exception as e:
+        st.error(f"Error counting laws: {str(e)}")
+        return 0
+
+
+# Load full details for a single law
+def load_full_law_details(client, case_number):
+    try:
+        db = client[DATABASE_NAME]
+        collection = db[COLLECTION_NAME]
+        law = collection.find_one({"CaseNumber": case_number})  # Fetch full details
+        return law
+    except Exception as e:
+        st.error(f"Error fetching full details for CaseNumber {case_number}: {str(e)}")
         return None
 
 
-def main():
-    # Header (similar to main page)
-    st.markdown("""
-        <div class="header">
-            <h1>🔍 Mini Lawyer - חיפוש פסקי דין</h1>
-            <div class="nav-links">
-                <a href="/" class="nav-link">חיפוש חוקים</a>
-                <a href="/Judgments" class="nav-link">חיפוש פסקי דין</a>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
+# Function to reset page to 1
+def reset_page():
+    st.session_state["page"] = 1
 
+
+def main():
+    st.title("📜 Judgments Searching")
+
+    # Initialize pagination state
+    if "page" not in st.session_state:
+        st.session_state["page"] = 1
+
+    # Connect to MongoDB and fetch ProcedureType options with a spinner
     client = init_connection()
     if not client:
         return
 
-    case_number = st.text_input("מספר תיק", placeholder="לדוגמה: 69349-12-20")
+    with st.spinner("Loading filters..."):
 
-    if st.button("חפש"):
-        if case_number:
-            db = client[DATABASE_NAME]
-            collection = db["judgments"]
+        procedure_types = get_procedure_types(client)
+        procedure_types = [x for x in procedure_types if x not in {'',', , , , ',' ,בג"ץ','בג"ץ, '}]
 
-            result = collection.find_one({"CaseNumber": str(case_number)})
+    # Filters section
+    with st.expander("Filters"):
+        case_number = st.text_input(
+            "Filter by Case Number (Regex)",
+            key="case_number_filter",
+            on_change=reset_page  # Reset page when this filter changes
+        )
+        judgments_name = st.text_input(
+            "Filter by Name (Regex)",
+            key="judgments_name_filter",
+            on_change=reset_page  # Reset page when this filter changes
+        )
+        procedure_type = st.selectbox(
+            "Filter by Procedure Type",
+            options=["All"] + procedure_types,
+            key="procedure_type_filter",
+            on_change=reset_page  # Reset page when this filter changes
+        )
+        date_range = st.date_input(
+            "Filter by Publication Date Range",
+            [],
+            key="date_filter",
+            on_change=reset_page  # Reset page when this filter changes
+        )
 
-            if result:
-                st.success(f"נמצא תיק מספר: {result['CaseNumber']}")
+    # Pagination state
+    page = st.session_state["page"]
+    page_size = 10
+    skip = (page - 1) * page_size
 
-                if 'Documents' in result and result['Documents']:
-                    for i, doc in enumerate(result['Documents']):
-                        if 'url' in doc:
-                            st.markdown(f"**מסמך {i + 1}**")
+    # Build filters based on input
+    filters = {}
+    if case_number:
+        filters["CaseNumber"] = {"$regex": case_number, "$options": "i"}
+    if judgments_name:
+        filters["Name"] = {"$regex": judgments_name, "$options": "i"}
+    if procedure_type != "All":
+        filters["ProcedureType"] = procedure_type
+    if len(date_range) == 2:
+        start_date, end_date = date_range
+        filters["PublicationDate"] = {
+            "$gte": datetime.combine(start_date, datetime.min.time()),
+            "$lte": datetime.combine(end_date, datetime.max.time())
+        }
 
-                            file_ext, mime_type = get_file_extension_and_mime(doc['url'])
+    # Query laws with loading animation
+    with st.spinner("Loading Judgments..."):
+        laws = query_laws(client, filters, skip, page_size)
+        total_laws = count_laws(client, filters)
 
-                            file_data = download_file(doc['url'])
-                            if file_data:
-                                st.download_button(
-                                    label=f"הורד מסמך ({file_ext[1:].upper()})",
-                                    data=file_data,
-                                    file_name=f"case_{case_number}_doc_{i + 1}{file_ext}",
-                                    mime=mime_type
-                                )
+    if laws:
+        st.markdown(f"### Page {page} (Showing {len(laws)} of {total_laws} laws)")
+        for law in laws:
+            with st.container():
+                # Render law card
+                st.markdown(f"""
+                    <div class="law-card">
+                        <div class="law-title">{law['Name']} (ID: {law['CaseNumber']})</div>
+                        <div class="law-meta">Publication Date: {law.get('DecisionDate', 'N/A')}</div>
+                        <div class="law-meta">Procedure Type: {law.get('ProcedureType', 'N/A')}</div>
+                    </div>
+                """, unsafe_allow_html=True)
 
-                            st.markdown(f"קישור: {doc['url']}")
-                else:
-                    st.warning("לא נמצאו מסמכים עבור תיק זה")
-            else:
-                st.warning("תיק לא נמצא")
+                # View full details button
+                if st.button(f"View Full Details for {law['CaseNumber']}", key=f"details_{law['CaseNumber']}"):
+                    with st.spinner("Loading full details..."):
+                        full_law = load_full_law_details(client, law['CaseNumber'])
+                        if full_law:
+                            st.json(full_law)  # Show full law details as JSON
+                        else:
+                            st.error(f"Unable to load full details for CaseNumber {law['CaseNumber']}")
 
-        else:
-            st.error("אנא הכנס מספר תיק")
+        # Pagination controls
+        total_pages = (total_laws + page_size - 1) // page_size
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            if st.button("Previous Page") and page > 1:
+                st.session_state["page"] -= 1
+        with col2:
+            st.write(f"Page {page} of {total_pages}")
+        with col3:
+            if st.button("Next Page") and page < total_pages:
+                st.session_state["page"] += 1
+    else:
+        st.warning("No judgments found with the applied filters.")
 
     client.close()
 
