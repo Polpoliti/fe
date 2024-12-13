@@ -1,5 +1,7 @@
 import streamlit as st
 import pymongo
+import requests
+from io import BytesIO
 from dotenv import load_dotenv
 import os
 from datetime import datetime
@@ -42,7 +44,7 @@ st.markdown("""
             text-align: center;
         }
         .stButton>button {
-            background-color: #4CAF50;
+            background-color: #7ce38b;
             color: white;
             font-size: 14px;
             border: none;
@@ -51,7 +53,7 @@ st.markdown("""
             cursor: pointer;
         }
         .stButton>button:hover {
-            background-color: #45a049;
+            background-color: #7ce38b;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -133,6 +135,20 @@ def reset_page():
     st.session_state["page"] = 1
 
 
+# Function to download the file from a URL
+def download_file(url):
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            return BytesIO(response.content)  # Return the file content as a BytesIO object
+        else:
+            st.error(f"Failed to download file: HTTP {response.status_code}")
+            return None
+    except Exception as e:
+        st.error(f"Error downloading file: {str(e)}")
+        return None
+
+
 def main():
     st.title("📜 Judgments Searching")
 
@@ -146,9 +162,8 @@ def main():
         return
 
     with st.spinner("Loading filters..."):
-
         procedure_types = get_procedure_types(client)
-        procedure_types = [x for x in procedure_types if x not in {'',', , , , ',' ,בג"ץ','בג"ץ, '}]
+        procedure_types = [x for x in procedure_types if x not in {'', ', , , , ', ' ,בג"ץ', 'בג"ץ, '}]  # Clean invalid ProcedureType values
 
     # Filters section
     with st.expander("Filters"):
@@ -213,14 +228,35 @@ def main():
                     </div>
                 """, unsafe_allow_html=True)
 
-                # View full details button
-                if st.button(f"View Full Details for {law['CaseNumber']}", key=f"details_{law['CaseNumber']}"):
-                    with st.spinner("Loading full details..."):
-                        full_law = load_full_law_details(client, law['CaseNumber'])
-                        if full_law:
-                            st.json(full_law)  # Show full law details as JSON
-                        else:
-                            st.error(f"Unable to load full details for CaseNumber {law['CaseNumber']}")
+                # Align buttons in a horizontal layout
+                col1, col2 = st.columns([1, 1])
+
+                with col1:
+                    # View full details button
+                    if st.button(f"View Full Details for {law['CaseNumber']}", key=f"details_{law['CaseNumber']}"):
+                        with st.spinner("Loading full details..."):
+                            full_law = load_full_law_details(client, law['CaseNumber'])
+                            if full_law:
+                                st.json(full_law)  # Show full law details as JSON
+                            else:
+                                st.error(f"Unable to load full details for CaseNumber {law['CaseNumber']}")
+
+                with col2:
+                    # File download button
+                    documents = law.get('Documents', [])  # Get the Documents array
+                    if documents and isinstance(documents, list) and 'url' in documents[
+                        0]:  # Check if the first document has a 'url'
+                        document_url = documents[0]['url']  # Extract the URL
+                        file_content = download_file(document_url)
+                        if file_content:
+                            file_extension = document_url.split('.')[-1]
+                            file_name = f"{law.get('CaseNumber', 'unknown')}.{file_extension}"  # Generate a file name based on CaseNumber
+                            st.download_button(
+                                label="Download Judgment",
+                                data=file_content,
+                                file_name=file_name,
+                                mime="application/octet-stream"
+                            )
 
         # Pagination controls
         total_pages = (total_laws + page_size - 1) // page_size

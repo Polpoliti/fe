@@ -42,7 +42,7 @@ st.markdown("""
             text-align: center;
         }
         .stButton>button {
-            background-color: #4CAF50;
+            background-color: #7ce38b;
             color: white;
             font-size: 14px;
             border: none;
@@ -51,7 +51,7 @@ st.markdown("""
             cursor: pointer;
         }
         .stButton>button:hover {
-            background-color: #45a049;
+            background-color: #7ce38b;
         }
     </style>
 """, unsafe_allow_html=True)

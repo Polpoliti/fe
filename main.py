@@ -7,7 +7,6 @@ load_dotenv()
 
 st.set_page_config(page_title="Mini Lawyer", page_icon="⚖️", layout="wide")
 
-
 def main():
     st.title("⚖️ Mini Lawyer")
 
