@@ -10,41 +10,54 @@ st.set_page_config(page_title="Mini Lawyer", page_icon="⚖️", layout="wide")
 # Custom CSS for styling
 st.markdown("""
     <style>
-        .title {
-            text-align: center;
+        .title-text {
             font-size: 48px;
             font-weight: bold;
             color: #4CAF50;
+            text-align: center;
+            margin-bottom: 20px;
         }
         .subtitle {
             text-align: center;
             font-size: 22px;
             color: #FFFFFF;
+            margin-top: -10px;
+            margin-bottom: 30px;
         }
         .content {
             font-size: 18px;
             color: #DDDDDD;
-            margin-top: 30px;
             line-height: 1.6;
-        }
-        .container {
             background-color: #1E1E1E;
             padding: 30px;
             border-radius: 10px;
             box-shadow: 0px 4px 10px rgba(0,0,0,0.5);
         }
+        .image-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            background-color: #1E1E1E;
+            padding: 10px 0;
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+}
     </style>
 """, unsafe_allow_html=True)
 
-
 def main():
-    # Title and subtitle
-    st.markdown('<div class="title">⚖️ Mini Lawyer</div>', unsafe_allow_html=True)
+    # Title
+    st.markdown('<div class="title-text">⚖️ Mini Lawyer</div>', unsafe_allow_html=True)
+
+    # Subtitle
     st.markdown('<div class="subtitle">Your Interactive Legal Assistant</div>', unsafe_allow_html=True)
 
+    # Content section
     st.markdown("""
-        <div class="container content">
-
+        <div class="content">
+       
         #### Welcome to Mini Lawyer
         An innovative legal assistance platform that simplifies access to legal information.  
         Our system provides a user-friendly and intelligent interface to search for laws, judgments, and relevant legal cases.
@@ -60,7 +73,6 @@ def main():
 
         ### Technology Behind the Scenes
         **Mini Lawyer** uses a robust and modern technology stack to deliver fast and accurate results:
-
         - **MongoDB**: Stores the full database of Israeli **laws** and **judgments**, including complete legal text, metadata, and related references.
         - **Vector Database**: Enables semantic search using advanced embeddings to locate the most relevant laws and judgments based on user queries.
         - **Voyage Law-2 Embedding**: A specialized embedding model tailored for legal language to ensure accurate keyword extraction and contextual search.
@@ -85,10 +97,13 @@ def main():
         - **LLM Pipeline**: Combines GPT-Model capabilities with data retrieval to deliver precise and context-aware legal recommendations.
 
         This pipeline ensures that lawyers and law students can access the most relevant legal documents quickly, efficiently, and in an actionable format.
-
         </div>
     """, unsafe_allow_html=True)
 
+    # Image section at the bottom
+    st.markdown('<div class="image-container">', unsafe_allow_html=True)
+    st.image("images/college_logo.png", width=400)  # Adjust path and size as needed
+    st.markdown('</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
