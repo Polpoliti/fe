@@ -138,7 +138,10 @@ def reset_page():
 # Function to download the file from a URL
 def download_file(url):
     try:
-        response = requests.get(url)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+        }
+        response = requests.get(url, headers=headers)
         if response.status_code == 200:
             return BytesIO(response.content)  # Return the file content as a BytesIO object
         else:
