@@ -4,7 +4,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from datetime import datetime
 import pymongo
-import socket
+import uuid
 
 # Load environment variables
 load_dotenv()
@@ -70,34 +70,45 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# Inject JavaScript for local storage
+st.markdown("""
+    <script>
+        function getOrCreateChatId() {
+            let chatId = localStorage.getItem("MiniLawyerChatId");
+            if (!chatId) {
+                chatId = Math.random().toString(36).substr(2, 16);
+                localStorage.setItem("MiniLawyerChatId", chatId);
+            }
+            return chatId;
+        }
+        window.streamlitChatId = getOrCreateChatId();
+        const streamlitElement = document.getElementById("streamlitChatId");
+        streamlitElement.textContent = window.streamlitChatId;
+    </script>
+    <div id="streamlitChatId" style="display: none;"></div>
+""", unsafe_allow_html=True)
 
 # Functions
-def get_user_ip():
-    """Get the user's IP address."""
-    try:
-        host_name = socket.gethostname()
-        user_ip = socket.gethostbyname(host_name)
-        return user_ip
-    except:
-        return "unknown_ip"
+def get_local_storage_id():
+    """Get the user's localStorage ID using JavaScript injection."""
+    local_storage_id = st.query_params.get("MiniLawyerChatId", str(uuid.uuid4()))
+    return local_storage_id
 
-
-def save_conversation(user_ip, user_name, messages):
-    """Save messages to MongoDB for the user."""
+def save_conversation(local_storage_id, user_name, messages):
+    """Save messages to MongoDB."""
     try:
         collection.update_one(
-            {"user_ip": user_ip},
-            {"$set": {"user_ip": user_ip, "user_name": user_name, "messages": messages}},
+            {"local_storage_id": local_storage_id},
+            {"$set": {"local_storage_id": local_storage_id, "user_name": user_name, "messages": messages}},
             upsert=True
         )
     except Exception as e:
         st.error(f"Error saving conversation: {e}")
 
-
-def load_conversation(user_ip):
-    """Load messages from MongoDB for the user."""
+def load_conversation(local_storage_id):
+    """Load messages from MongoDB."""
     try:
-        conversation = collection.find_one({"user_ip": user_ip})
+        conversation = collection.find_one({"local_storage_id": local_storage_id})
         if conversation:
             st.session_state['user_name'] = conversation['user_name']
             return conversation.get('messages', [])
@@ -106,17 +117,15 @@ def load_conversation(user_ip):
         st.error(f"Error loading conversation: {e}")
         return []
 
-
-def delete_conversation(user_ip):
-    """Delete the user's conversation document in MongoDB."""
+def delete_conversation(local_storage_id):
+    """Delete the conversation document in MongoDB."""
     try:
-        collection.delete_one({"user_ip": user_ip})
+        collection.delete_one({"local_storage_id": local_storage_id})
     except Exception as e:
         st.error(f"Error deleting conversation: {e}")
 
-
 def generate_response(user_input):
-    """Generate a GPT-4 response for the user input."""
+    """Generate a GPT-4 response."""
     try:
         messages = [{"role": "system", "content": PROMPT_TEMPLATE}]
         for msg in st.session_state['messages'][-5:]:
@@ -133,9 +142,8 @@ def generate_response(user_input):
     except Exception as e:
         return f"Error: {str(e)}"
 
-
 def display_messages():
-    """Display chat messages."""
+    """Display messages."""
     for msg in st.session_state['messages']:
         role = "user-message" if msg['role'] == "user" else "bot-message"
         st.markdown(f"""
@@ -145,35 +153,32 @@ def display_messages():
             </div>
         """, unsafe_allow_html=True)
 
-
 def add_message(role, content):
-    """Add a new message to the session state."""
+    """Add a message to session state."""
     st.session_state['messages'].append({
         "role": role,
         "content": content,
         "timestamp": datetime.now().strftime("%H:%M:%S")
     })
 
-
-# AI System Prompt
+# System Prompt
 PROMPT_TEMPLATE = """
 You are a legal assistant specialized in Israeli law. Provide professional, accurate, and well-cited answers. 
 Make sure your responses are clear and relevant ONLY to legal professionals and law students.
 Answer always in Hebrew, and avoid using slang or informal language.
 """
 
-
 # Main layout
 st.markdown('<div class="chat-header">💬 Ask Mini Lawyer</div>', unsafe_allow_html=True)
 
-# Check for user IP
-user_ip = get_user_ip()
+# Retrieve local storage ID
+local_storage_id = get_local_storage_id()
 
-# Check for session states
+# Initialize session state
 if "user_name" not in st.session_state:
     st.session_state["user_name"] = None
 if "messages" not in st.session_state:
-    st.session_state["messages"] = load_conversation(user_ip)
+    st.session_state["messages"] = load_conversation(local_storage_id)
 
 if not st.session_state["user_name"]:
     with st.form(key="user_name_form", clear_on_submit=True):
@@ -182,36 +187,36 @@ if not st.session_state["user_name"]:
     if submitted_name and user_name_input:
         st.session_state["user_name"] = user_name_input.strip()
         add_message("assistant", f"שלום {user_name_input}, איך אוכל לעזור לך היום?")
-        save_conversation(user_ip, user_name_input, st.session_state['messages'])
+        save_conversation(local_storage_id, user_name_input, st.session_state['messages'])
         st.rerun()
 else:
-    # Chat container
+    # Chat display
     with st.container():
         st.markdown('<div class="chat-container">', unsafe_allow_html=True)
         display_messages()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # User input section
+    # User input
     with st.form(key="chat_form", clear_on_submit=True):
         user_input = st.text_area("Ask your legal question here:", height=100)
         submitted = st.form_submit_button("Submit")
 
     if submitted and user_input.strip():
-        add_message("user", user_input)  # Add user message immediately
-        save_conversation(user_ip, st.session_state["user_name"], st.session_state['messages'])
+        add_message("user", user_input)
+        save_conversation(local_storage_id, st.session_state["user_name"], st.session_state['messages'])
         st.rerun()
 
-    # Process GPT response if the last message is from the user
+    # Process GPT response
     if st.session_state['messages'] and st.session_state['messages'][-1]['role'] == "user":
         with st.spinner("Analyzing..."):
             assistant_response = generate_response(st.session_state['messages'][-1]['content'])
         add_message("assistant", assistant_response)
-        save_conversation(user_ip, st.session_state["user_name"], st.session_state['messages'])
+        save_conversation(local_storage_id, st.session_state["user_name"], st.session_state['messages'])
         st.rerun()
 
-    # Clear chat confirmation
+    # Clear chat
     if st.button("Clear Chat"):
-        delete_conversation(user_ip)
+        delete_conversation(local_storage_id)
         st.session_state['messages'] = []
         st.session_state['user_name'] = None
         st.rerun()
