@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 import pymongo
 import uuid
+from streamlit_js import st_js, st_js_blocking
 
 # Load environment variables
 load_dotenv()
@@ -70,29 +71,41 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Inject JavaScript for local storage
-st.markdown("""
-    <script>
-        function getOrCreateChatId() {
-            let chatId = localStorage.getItem("MiniLawyerChatId");
-            if (!chatId) {
-                chatId = Math.random().toString(36).substr(2, 16);
-                localStorage.setItem("MiniLawyerChatId", chatId);
-            }
-            return chatId;
-        }
-        window.streamlitChatId = getOrCreateChatId();
-        const streamlitElement = document.getElementById("streamlitChatId");
-        streamlitElement.textContent = window.streamlitChatId;
-    </script>
-    <div id="streamlitChatId" style="display: none;"></div>
-""", unsafe_allow_html=True)
 
-# Functions
-def get_local_storage_id():
-    """Get the user's localStorage ID using JavaScript injection."""
-    local_storage_id = st.query_params.get("MiniLawyerChatId", str(uuid.uuid4()))
-    return local_storage_id
+# Functions for localStorage handling
+def get_localstorage_value(key: str):
+    """Get a value from localStorage using st_js_blocking"""
+    code = f"return localStorage.getItem('{key}');"
+    return st_js_blocking(code, key="get_" + key)
+
+
+def set_localstorage_value(key: str, value: str):
+    """Set a value in localStorage"""
+    code = f"localStorage.setItem('{key}', '{value}');"
+    st_js(code)
+
+
+def get_or_create_chat_id():
+    """Get existing chat ID or create a new one"""
+    if 'current_chat_id' not in st.session_state:
+        st.session_state.current_chat_id = None
+
+    chat_id = get_localstorage_value("MiniLawyerChatId")
+
+    if chat_id in (None, "null"):
+        if st.session_state.current_chat_id is None:
+            new_id = str(uuid.uuid4())
+            set_localstorage_value("MiniLawyerChatId", new_id)
+            st.session_state.current_chat_id = new_id
+            st.rerun()
+        else:
+            set_localstorage_value("MiniLawyerChatId", st.session_state.current_chat_id)
+            return st.session_state.current_chat_id
+    else:
+        if st.session_state.current_chat_id != chat_id:
+            st.session_state.current_chat_id = chat_id
+        return chat_id
+
 
 def save_conversation(local_storage_id, user_name, messages):
     """Save messages to MongoDB."""
@@ -104,6 +117,7 @@ def save_conversation(local_storage_id, user_name, messages):
         )
     except Exception as e:
         st.error(f"Error saving conversation: {e}")
+
 
 def load_conversation(local_storage_id):
     """Load messages from MongoDB."""
@@ -117,12 +131,17 @@ def load_conversation(local_storage_id):
         st.error(f"Error loading conversation: {e}")
         return []
 
+
 def delete_conversation(local_storage_id):
     """Delete the conversation document in MongoDB."""
     try:
         collection.delete_one({"local_storage_id": local_storage_id})
+        # Clear localStorage
+        st_js("localStorage.clear();")
+        st.session_state.current_chat_id = None
     except Exception as e:
         st.error(f"Error deleting conversation: {e}")
+
 
 def generate_response(user_input):
     """Generate a GPT-4 response."""
@@ -142,6 +161,7 @@ def generate_response(user_input):
     except Exception as e:
         return f"Error: {str(e)}"
 
+
 def display_messages():
     """Display messages."""
     for msg in st.session_state['messages']:
@@ -153,6 +173,7 @@ def display_messages():
             </div>
         """, unsafe_allow_html=True)
 
+
 def add_message(role, content):
     """Add a message to session state."""
     st.session_state['messages'].append({
@@ -160,6 +181,7 @@ def add_message(role, content):
         "content": content,
         "timestamp": datetime.now().strftime("%H:%M:%S")
     })
+
 
 # System Prompt
 PROMPT_TEMPLATE = """
@@ -171,8 +193,8 @@ Answer always in Hebrew, and avoid using slang or informal language.
 # Main layout
 st.markdown('<div class="chat-header">💬 Ask Mini Lawyer</div>', unsafe_allow_html=True)
 
-# Retrieve local storage ID
-local_storage_id = get_local_storage_id()
+# Get or create chat ID
+local_storage_id = get_or_create_chat_id()
 
 # Initialize session state
 if "user_name" not in st.session_state:

@@ -57,9 +57,9 @@ def main():
     # Content section
     st.markdown("""
         <div class="content">
-       
+
         #### Welcome to Mini Lawyer
-        An innovative legal assistance platform that simplifies access to legal information.  
+        An innovative legal assistance platform that simplifies access to legal information.
         Our system provides a user-friendly and intelligent interface to search for laws, judgments, and relevant legal cases.
 
         ### What is Mini Lawyer?
@@ -81,7 +81,7 @@ def main():
         ### How the Pipeline Works:
         1. **User Input**: The user shares their legal query or case scenario through the chat interface.
         2. **Keyword Extraction**: The input is analyzed using **Voyage Law-2 embeddings** to extract contextual keywords for precise search.
-        3. **Data Retrieval**: 
+        3. **Data Retrieval**:
             - The **Vector Database** finds the most relevant laws and judgments based on the extracted keywords.
             - The **MongoDB** returns the full legal texts of laws and judgments in structured JSON format or as downloadable documents.
         4. **LLM Analysis**: The LLM model processes the retrieved content and generates insights, including summaries, evidence, and recommendations.
