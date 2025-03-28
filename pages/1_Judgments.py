@@ -30,6 +30,11 @@ st.markdown("""
             font-weight: bold;
             color: #333;
         }
+        .law-description {
+            font-size: 16px;
+            color: #444;
+            margin: 10px 0;
+        }
         .law-meta {
             font-size: 14px;
             color: #555;
@@ -72,8 +77,8 @@ def get_procedure_types(client):
         st.error(f"Error fetching ProcedureType values: {str(e)}")
         return []
 
-# Query laws with pagination and filtering
-def query_laws(client, filters=None, skip=0, limit=10):
+# Query judgments with pagination and filtering
+def query_judgments(client, filters=None, skip=0, limit=10):
     try:
         db = client[DATABASE_NAME]
         collection = db[COLLECTION_NAME]
@@ -86,14 +91,14 @@ def query_laws(client, filters=None, skip=0, limit=10):
         pipeline.append({"$skip": skip})
         pipeline.append({"$limit": limit})
 
-        laws = list(collection.aggregate(pipeline))
-        return laws
+        judgments = list(collection.aggregate(pipeline))
+        return judgments
     except Exception as e:
-        st.error(f"Error querying laws: {str(e)}")
+        st.error(f"Error querying judgments: {str(e)}")
         return []
 
-# Count total laws with filters
-def count_laws(client, filters=None):
+# Count total judgments with filters
+def count_judgments(client, filters=None):
     try:
         db = client[DATABASE_NAME]
         collection = db[COLLECTION_NAME]
@@ -101,7 +106,7 @@ def count_laws(client, filters=None):
             return collection.count_documents(filters)
         return collection.estimated_document_count()
     except Exception as e:
-        st.error(f"Error counting laws: {str(e)}")
+        st.error(f"Error counting judgments: {str(e)}")
         return 0
 
 def main():
@@ -118,7 +123,7 @@ def main():
 
     with st.spinner("Loading filters..."):
         procedure_types = get_procedure_types(client)
-        procedure_types = [x for x in procedure_types if x not in {'', ', , , , ', ' ,בג"ץ', 'בג"ץ, '}]  # Clean invalid values
+        procedure_types = [x for x in procedure_types if x not in {'', ', , , , ', ' ,בג"ץ', 'בג"ץ, '}]
 
     # Filters section
     with st.expander("Filters"):
@@ -147,35 +152,31 @@ def main():
             "$lte": datetime.combine(end_date, datetime.max.time())
         }
 
-    # Query laws
+    # Query judgments
     with st.spinner("Loading Judgments..."):
-        laws = query_laws(client, filters, skip, page_size)
-        total_laws = count_laws(client, filters)
+        judgments = query_judgments(client, filters, skip, page_size)
+        total_judgments = count_judgments(client, filters)
 
-    if laws:
-        st.markdown(f"### Page {page} (Showing {len(laws)} of {total_laws} laws)")
-        for law in laws:
+    if judgments:
+        st.markdown(f"### Page {page} (Showing {len(judgments)} of {total_judgments} judgments)")
+        for judgment in judgments:
+            judgment_description = judgment.get("Description", "").strip() or "אין תיאור לפסק הדין זה"
             with st.container():
-                # Render law card
                 st.markdown(f"""
                     <div class="law-card">
-                        <div class="law-title">{law['Name']} (ID: {law['CaseNumber']})</div>
-                        <div class="law-meta">Publication Date: {law.get('DecisionDate', 'N/A')}</div>
-                        <div class="law-meta">Procedure Type: {law.get('ProcedureType', 'N/A')}</div>
+                        <div class="law-title">{judgment['Name']} (ID: {judgment['CaseNumber']})</div>
+                        <div class="law-description">{judgment_description}</div>
+                        <div class="law-meta">Publication Date: {judgment.get('DecisionDate', 'N/A')}</div>
+                        <div class="law-meta">Procedure Type: {judgment.get('ProcedureType', 'N/A')}</div>
                     </div>
                 """, unsafe_allow_html=True)
 
-                # Align buttons in a horizontal layout
                 col1, col2 = st.columns([1, 1])
-
                 with col1:
-                    # View full details button
-                    if st.button(f"View Full Details for {law['CaseNumber']}", key=f"details_{law['CaseNumber']}"):
-                        st.json(law)
-
+                    if st.button(f"View Full Details for {judgment['CaseNumber']}", key=f"details_{judgment['CaseNumber']}"):
+                        st.json(judgment)
                 with col2:
-                    # Link button to redirect to the file URL
-                    documents = law.get('Documents', [])
+                    documents = judgment.get('Documents', [])
                     if documents and isinstance(documents, list) and 'url' in documents[0]:
                         document_url = documents[0]['url']
                         st.markdown(
@@ -196,10 +197,8 @@ def main():
                             unsafe_allow_html=True
                         )
 
-        # Pagination controls
-        total_pages = (total_laws + page_size - 1) // page_size
+        total_pages = (total_judgments + page_size - 1) // page_size
         col1, col2, col3 = st.columns(3)
-
         with col1:
             if st.button("Previous Page") and page > 1:
                 st.session_state["page"] -= 1
@@ -215,6 +214,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-

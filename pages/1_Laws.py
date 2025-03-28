@@ -30,6 +30,11 @@ st.markdown("""
             font-weight: bold;
             color: #333;
         }
+        .law-description {
+            font-size: 16px;
+            color: #444;
+            margin: 10px 0;
+        }
         .law-meta {
             font-size: 14px;
             color: #555;
@@ -56,7 +61,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-
 # Initialize MongoDB connection
 def init_connection():
     try:
@@ -64,7 +68,6 @@ def init_connection():
     except Exception as e:
         st.error(f"Failed to connect to MongoDB: {str(e)}")
         return None
-
 
 # Query laws with pagination and filtering
 def query_laws(client, filters=None, skip=0, limit=10):
@@ -93,7 +96,6 @@ def query_laws(client, filters=None, skip=0, limit=10):
         st.error(f"Error querying laws: {str(e)}")
         return []
 
-
 # Count total laws with filters
 def count_laws(client, filters=None):
     try:
@@ -106,23 +108,20 @@ def count_laws(client, filters=None):
         st.error(f"Error counting laws: {str(e)}")
         return 0
 
-
 # Load full details for a single law (include Segments)
 def load_full_law_details(client, law_id):
     try:
         db = client[DATABASE_NAME]
         collection = db[COLLECTION_NAME]
-        law = collection.find_one({"IsraelLawID": law_id})  # Fetch full details
+        law = collection.find_one({"IsraelLawID": law_id})
         return law
     except Exception as e:
         st.error(f"Error fetching full details for law ID {law_id}: {str(e)}")
         return None
 
-
 # Function to reset page to 1
 def reset_page():
     st.session_state["page"] = 1
-
 
 def main():
     st.title("📜 Laws Searching")
@@ -139,18 +138,18 @@ def main():
             step=1,
             value=0,
             key="law_id_filter",
-            on_change=reset_page  # Reset page when this filter changes
+            on_change=reset_page
         )
         law_name = st.text_input(
             "Filter by Name (Regex)",
             key="law_name_filter",
-            on_change=reset_page  # Reset page when this filter changes
+            on_change=reset_page
         )
         date_range = st.date_input(
             "Filter by Publication Date Range",
             [],
             key="date_filter",
-            on_change=reset_page  # Reset page when this filter changes
+            on_change=reset_page
         )
 
     # Pagination state
@@ -183,28 +182,26 @@ def main():
     if laws:
         st.markdown(f"### Page {page} (Showing {len(laws)} of {total_laws} laws)")
         for law in laws:
+            law_description = law.get("Description", "").strip() or "אין תיאור לחוק זה"
             with st.container():
-                # Render law card
                 st.markdown(f"""
                     <div class="law-card">
                         <div class="law-title">{law['Name']} (ID: {law['IsraelLawID']})</div>
+                        <div class="law-description">{law_description}</div>
                         <div class="law-meta">Publication Date: {law.get('PublicationDate', 'N/A')}</div>
                     </div>
                 """, unsafe_allow_html=True)
 
-                # View full details button
                 if st.button(f"View Full Details for {law['IsraelLawID']}", key=f"details_{law['IsraelLawID']}"):
                     with st.spinner("Loading full details..."):
                         full_law = load_full_law_details(client, law['IsraelLawID'])
                         if full_law:
-                            st.json(full_law)  # Show full law details as JSON
+                            st.json(full_law)
                         else:
                             st.error(f"Unable to load full details for law ID {law['IsraelLawID']}")
 
-        # Pagination controls
         total_pages = (total_laws + page_size - 1) // page_size
         col1, col2, col3 = st.columns(3)
-
         with col1:
             if st.button("Previous Page") and page > 1:
                 st.session_state["page"] -= 1
@@ -217,7 +214,6 @@ def main():
         st.warning("No laws found with the applied filters.")
 
     client.close()
-
 
 if __name__ == "__main__":
     main()
