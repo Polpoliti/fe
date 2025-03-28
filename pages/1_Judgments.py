@@ -58,6 +58,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+
 # Initialize MongoDB connection
 def init_connection():
     try:
@@ -65,6 +66,7 @@ def init_connection():
     except Exception as e:
         st.error(f"Failed to connect to MongoDB: {str(e)}")
         return None
+
 
 # Query distinct ProcedureType values
 def get_procedure_types(client):
@@ -76,6 +78,7 @@ def get_procedure_types(client):
     except Exception as e:
         st.error(f"Error fetching ProcedureType values: {str(e)}")
         return []
+
 
 # Query judgments with pagination and filtering
 def query_judgments(client, filters=None, skip=0, limit=10):
@@ -97,6 +100,7 @@ def query_judgments(client, filters=None, skip=0, limit=10):
         st.error(f"Error querying judgments: {str(e)}")
         return []
 
+
 # Count total judgments with filters
 def count_judgments(client, filters=None):
     try:
@@ -108,6 +112,7 @@ def count_judgments(client, filters=None):
     except Exception as e:
         st.error(f"Error counting judgments: {str(e)}")
         return 0
+
 
 def main():
     st.title("📜 Judgments Searching")
@@ -129,7 +134,8 @@ def main():
     with st.expander("Filters"):
         case_number = st.text_input("Filter by Case Number (Regex)", key="case_number_filter")
         judgments_name = st.text_input("Filter by Name (Regex)", key="judgments_name_filter")
-        procedure_type = st.selectbox("Filter by Procedure Type", options=["All"] + procedure_types, key="procedure_type_filter")
+        procedure_type = st.selectbox("Filter by Procedure Type", options=["All"] + procedure_types,
+                                      key="procedure_type_filter")
         date_range = st.date_input("Filter by Publication Date Range", [])
 
     # Pagination state
@@ -173,7 +179,8 @@ def main():
 
                 col1, col2 = st.columns([1, 1])
                 with col1:
-                    if st.button(f"View Full Details for {judgment['CaseNumber']}", key=f"details_{judgment['CaseNumber']}"):
+                    if st.button(f"View Full Details for {judgment['CaseNumber']}",
+                                 key=f"details_{judgment['CaseNumber']}"):
                         st.json(judgment)
                 with col2:
                     documents = judgment.get('Documents', [])
@@ -211,6 +218,7 @@ def main():
         st.warning("No judgments found with the applied filters.")
 
     client.close()
+
 
 if __name__ == "__main__":
     main()
