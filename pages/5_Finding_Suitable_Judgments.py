@@ -4,6 +4,7 @@ from sentence_transformers import SentenceTransformer
 from pymongo import MongoClient
 import os
 from dotenv import load_dotenv
+from datetime import datetime
 import openai
 import json
 
@@ -15,13 +16,14 @@ load_dotenv()
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 OPENAI_API_KEY = os.getenv("OPEN_AI")
-INDEX_NAME = "laws-names"
+# Use a separate index for judgments (assumed to be "judgments-names")
+INDEX_NAME = "judgments-names"
 
 MONGO_URI = os.getenv("MONGO_URI")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
-COLLECTION_NAME = "laws"
+COLLECTION_NAME = "judgments"
 
-st.set_page_config(page_title="Finding Suitable Law", page_icon="⚖️", layout="wide")
+st.set_page_config(page_title="Finding Suitable Judgments", page_icon="📜", layout="wide")
 
 st.markdown("""
     <style>
@@ -68,7 +70,7 @@ if not PINECONE_API_KEY:
     st.stop()
 
 pc = pinecone.Pinecone(api_key=PINECONE_API_KEY)
-
+st.info("Pinecone client initialized.")
 index = pc.Index(INDEX_NAME)
 
 # === Load Embedding Model ===
@@ -84,38 +86,37 @@ try:
     mongo_client = MongoClient(MONGO_URI)
     db = mongo_client[DATABASE_NAME]
     collection = db[COLLECTION_NAME]
+    st.info(f"Connected to MongoDB collection: {COLLECTION_NAME}")
 except Exception as e:
     st.error(f"Failed to connect to MongoDB: {e}")
     st.stop()
 
-
-# === Load full details for a single law (same as in 1_laws) ===
-def load_full_law_details(client, law_id):
+# === Load full details for a single judgment ===
+def load_full_judgment_details(client, case_number):
     try:
         db = client[DATABASE_NAME]
         collection = db[COLLECTION_NAME]
-        law = collection.find_one({"IsraelLawID": law_id})
-        return law
+        judgment = collection.find_one({"CaseNumber": case_number})
+        return judgment
     except Exception as e:
-        st.error(f"Error fetching full details for law ID {law_id}: {str(e)}")
+        st.error(f"Error fetching full details for CaseNumber {case_number}: {str(e)}")
         return None
 
-
-# === Get GPT Explanation for Why the Law Helps ===
-def get_law_explanation(scenario, law_doc):
-    law_name = law_doc.get("Name", "")
-    law_desc = law_doc.get("Description", "")
+# === Get GPT Explanation for Why the Judgment Helps ===
+def get_judgment_explanation(scenario, judgment_doc):
+    judgment_name = judgment_doc.get("Name", "")
+    judgment_desc = judgment_doc.get("Description", "")
     prompt = f"""בהתבסס על הסצנריו הבא:
 {scenario}
 
-וכן על פרטי החוק הבא:
-שם: {law_name}
-תיאור: {law_desc}
+וכן על פרטי פסק הדין הבא:
+שם: {judgment_name}
+תיאור: {judgment_desc}
 
- אנא הסבר בצורה תמציתית ומקצועית מדוע חוק זה יכול לעזור למקרה זה, והערך אותו בסולם של 0 עד 10 כאשר 0 החוק לא יכול לעזור בכלל ולא קשור לנושא ו10 החוק מתאים כמו כפפה והוא בדיוק מה שהמשתמש תיאר והחוק יעזור לו למקרה
+אנא הסבר בצורה תמציתית ומקצועית מדוע פסק דין זה יכול לעזור למקרה זה, והערך אותו בסולם של 0 עד 10 כאשר 0 - אינו עוזר כלל ו-10 - מתאים במדויק.
 החזר את התשובה בפורמט JSON בלבד, לדוגמה:
 {{
-  "advice": "הסבר תמציתי ומקצועי בעברית",
+  "advice": "הסבר מקצועי בעברית",
   "score": 8
 }}
 אין להוסיף טקסט נוסף.
@@ -130,47 +131,45 @@ def get_law_explanation(scenario, law_doc):
         result = json.loads(output)
         return result
     except Exception as e:
-        st.error(f"Error getting law explanation: {e}")
+        st.error(f"Error getting judgment explanation: {e}")
         return {"advice": "לא ניתן לקבל הסבר בשלב זה.", "score": "N/A"}
 
-
 # === UI: Ask for User Scenario ===
-st.title("Finding Suitable Law")
+st.title("Finding Suitable Judgments")
 scenario = st.text_area("Describe your scenario (what you plan to do, your situation, etc.):")
 
-if st.button("Find Suitable Laws") and scenario:
+if st.button("Find Suitable Judgments") and scenario:
     with st.spinner("Generating query embedding..."):
         query_embedding = model.encode([scenario], normalize_embeddings=True)[0]
-
-    with st.spinner("Querying Pinecone for similar laws..."):
+    with st.spinner("Querying Pinecone for similar judgments..."):
         query_response = index.query(
             vector=query_embedding.tolist(),
             top_k=5,
             include_metadata=True
         )
-
     if query_response and query_response.get("matches"):
-        st.markdown("### Suitable Laws Found:")
+        st.markdown("### Suitable Judgments Found:")
         for match in query_response["matches"]:
             metadata = match.get("metadata", {})
-            israel_law_id = metadata.get("IsraelLawID")
-            if israel_law_id is None:
+            case_number = metadata.get("CaseNumber")
+            if case_number is None:
                 continue
-
-            law_doc = load_full_law_details(mongo_client, israel_law_id)
-            if law_doc:
-                name = law_doc.get("Name", "No Name")
-                description = law_doc.get("Description", "אין תיאור לחוק זה")
-                publication_date = law_doc.get("PublicationDate", "N/A")
+            judgment_doc = load_full_judgment_details(mongo_client, case_number)
+            if judgment_doc:
+                name = judgment_doc.get("Name", "No Name")
+                description = judgment_doc.get("Description", "אין תיאור לפסק הדין זה")
+                decision_date = judgment_doc.get("DecisionDate", "N/A")
+                procedure_type = judgment_doc.get("ProcedureType", "N/A")
                 st.markdown(f"""
                     <div class="law-card">
-                        <div class="law-title">{name} (ID: {israel_law_id})</div>
+                        <div class="law-title">{name} (ID: {case_number})</div>
                         <div class="law-description">{description}</div>
-                        <div class="law-meta">Publication Date: {publication_date}</div>
+                        <div class="law-meta">Decision Date: {decision_date}</div>
+                        <div class="law-meta">Procedure Type: {procedure_type}</div>
                     </div>
                 """, unsafe_allow_html=True)
                 with st.spinner("Getting site advice..."):
-                    result = get_law_explanation(scenario, law_doc)
+                    result = get_judgment_explanation(scenario, judgment_doc)
                     advice = result.get("advice", "")
                     score = result.get("score", "N/A")
                 st.markdown(f"""
@@ -179,10 +178,10 @@ if st.button("Find Suitable Laws") and scenario:
                         <span style="font-size: 24px; font-weight: bold; color: red;">{score}/10</span>
                     </div>
                 """, unsafe_allow_html=True)
-                if st.button(f"View Full Details for {israel_law_id}", key=f"details_{israel_law_id}"):
+                if st.button(f"View Full Details for {case_number}", key=f"details_{case_number}"):
                     with st.spinner("Loading full details..."):
-                        st.json(law_doc)
+                        st.json(judgment_doc)
             else:
-                st.warning(f"No document found for IsraelLawID: {israel_law_id}")
+                st.warning(f"No document found for CaseNumber: {case_number}")
     else:
-        st.info("No similar laws found.")
+        st.info("No similar judgments found.")
