@@ -1,5 +1,6 @@
 import os
 import streamlit as st
+import torch
 from openai import OpenAI
 from dotenv import load_dotenv
 from datetime import datetime
@@ -7,6 +8,8 @@ import pymongo
 import uuid
 from streamlit_js import st_js, st_js_blocking
 
+# Fix for torch.classes error
+torch.classes.__path__ = []
 # Load environment variables
 load_dotenv()
 

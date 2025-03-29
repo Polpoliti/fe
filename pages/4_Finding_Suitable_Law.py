@@ -1,9 +1,14 @@
+import os
+import torch
+# Fix for torch.classes error
+torch.classes.__path__ = []
+
 import streamlit as st
 import pinecone
 from sentence_transformers import SentenceTransformer
 from pymongo import MongoClient
-import os
 from dotenv import load_dotenv
+from datetime import datetime
 import openai
 import json
 
@@ -68,7 +73,7 @@ if not PINECONE_API_KEY:
     st.stop()
 
 pc = pinecone.Pinecone(api_key=PINECONE_API_KEY)
-
+st.info("Pinecone client initialized.")
 index = pc.Index(INDEX_NAME)
 
 # === Load Embedding Model ===
@@ -88,8 +93,7 @@ except Exception as e:
     st.error(f"Failed to connect to MongoDB: {e}")
     st.stop()
 
-
-# === Load full details for a single law (same as in 1_laws) ===
+# === Load full details for a single law ===
 def load_full_law_details(client, law_id):
     try:
         db = client[DATABASE_NAME]
@@ -99,7 +103,6 @@ def load_full_law_details(client, law_id):
     except Exception as e:
         st.error(f"Error fetching full details for law ID {law_id}: {str(e)}")
         return None
-
 
 # === Get GPT Explanation for Why the Law Helps ===
 def get_law_explanation(scenario, law_doc):
@@ -112,7 +115,7 @@ def get_law_explanation(scenario, law_doc):
 שם: {law_name}
 תיאור: {law_desc}
 
- אנא הסבר בצורה תמציתית ומקצועית מדוע חוק זה יכול לעזור למקרה זה, והערך אותו בסולם של 0 עד 10 כאשר 0 החוק לא יכול לעזור בכלל ולא קשור לנושא ו10 החוק מתאים כמו כפפה והוא בדיוק מה שהמשתמש תיאר והחוק יעזור לו למקרה
+אנא הסבר בצורה תמציתית ומקצועית מדוע חוק זה יכול לעזור למקרה זה, והערך אותו בסולם של 0 עד 10 כאשר 0 החוק לא יכול לעזור בכלל ולא קשור לנושא ו10 החוק מתאים כמו כפפה והוא בדיוק מה שהמשתמש תיאר והחוק יעזור לו למקרה, תהיה נוקשה בציון, אל תביא 9 לכל ציון, תהיה מגוון
 החזר את התשובה בפורמט JSON בלבד, לדוגמה:
 {{
   "advice": "הסבר תמציתי ומקצועי בעברית",
@@ -133,7 +136,6 @@ def get_law_explanation(scenario, law_doc):
         st.error(f"Error getting law explanation: {e}")
         return {"advice": "לא ניתן לקבל הסבר בשלב זה.", "score": "N/A"}
 
-
 # === UI: Ask for User Scenario ===
 st.title("Finding Suitable Law")
 scenario = st.text_area("Describe your scenario (what you plan to do, your situation, etc.):")
@@ -141,14 +143,12 @@ scenario = st.text_area("Describe your scenario (what you plan to do, your situa
 if st.button("Find Suitable Laws") and scenario:
     with st.spinner("Generating query embedding..."):
         query_embedding = model.encode([scenario], normalize_embeddings=True)[0]
-
     with st.spinner("Querying Pinecone for similar laws..."):
         query_response = index.query(
             vector=query_embedding.tolist(),
             top_k=5,
             include_metadata=True
         )
-
     if query_response and query_response.get("matches"):
         st.markdown("### Suitable Laws Found:")
         for match in query_response["matches"]:
@@ -156,7 +156,6 @@ if st.button("Find Suitable Laws") and scenario:
             israel_law_id = metadata.get("IsraelLawID")
             if israel_law_id is None:
                 continue
-
             law_doc = load_full_law_details(mongo_client, israel_law_id)
             if law_doc:
                 name = law_doc.get("Name", "No Name")

@@ -15,6 +15,8 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 load_dotenv()
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+st.info("Pinecone client initialized.")
+
 OPENAI_API_KEY = os.getenv("OPEN_AI")
 # Use a separate index for judgments (assumed to be "judgments-names")
 INDEX_NAME = "judgments-names"
