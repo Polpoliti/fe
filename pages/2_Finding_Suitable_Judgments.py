@@ -1,8 +1,17 @@
+import os
+import torch
+
+# Fix for torch.classes error
+torch.classes.__path__ = []
+
 import streamlit as st
+
+st.set_page_config(page_title="Finding Suitable Judgments", page_icon="📜", layout="wide")
+# If set_page_config is already set by a parent app, the above call will be ignored.
+
 import pinecone
 from sentence_transformers import SentenceTransformer
 from pymongo import MongoClient
-import os
 from dotenv import load_dotenv
 from datetime import datetime
 import openai
@@ -15,17 +24,13 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 load_dotenv()
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-st.info("Pinecone client initialized.")
-
 OPENAI_API_KEY = os.getenv("OPEN_AI")
-# Use a separate index for judgments (assumed to be "judgments-names")
+# Use a separate index for judgments
 INDEX_NAME = "judgments-names"
 
 MONGO_URI = os.getenv("MONGO_URI")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
 COLLECTION_NAME = "judgments"
-
-st.set_page_config(page_title="Finding Suitable Judgments", page_icon="📜", layout="wide")
 
 st.markdown("""
     <style>
@@ -93,6 +98,7 @@ except Exception as e:
     st.error(f"Failed to connect to MongoDB: {e}")
     st.stop()
 
+
 # === Load full details for a single judgment ===
 def load_full_judgment_details(client, case_number):
     try:
@@ -103,6 +109,7 @@ def load_full_judgment_details(client, case_number):
     except Exception as e:
         st.error(f"Error fetching full details for CaseNumber {case_number}: {str(e)}")
         return None
+
 
 # === Get GPT Explanation for Why the Judgment Helps ===
 def get_judgment_explanation(scenario, judgment_doc):
@@ -135,6 +142,7 @@ def get_judgment_explanation(scenario, judgment_doc):
     except Exception as e:
         st.error(f"Error getting judgment explanation: {e}")
         return {"advice": "לא ניתן לקבל הסבר בשלב זה.", "score": "N/A"}
+
 
 # === UI: Ask for User Scenario ===
 st.title("Finding Suitable Judgments")
