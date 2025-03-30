@@ -1,33 +1,36 @@
+import streamlit as st
+st.set_page_config(page_title="Finding Suitable Law", page_icon="⚖️", layout="wide")
+
 import os
 import torch
-# Fix for torch.classes error
+
 torch.classes.__path__ = []
 
-import streamlit as st
-import pinecone
-from sentence_transformers import SentenceTransformer
-from pymongo import MongoClient
-from dotenv import load_dotenv
-from datetime import datetime
-import openai
+from app_resources import model, pinecone_client, mongo_client
+from openai import OpenAI
 import json
+
+# Set page config
 
 # Disable parallelism in tokenizers to avoid warnings
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-# === Load Environment Variables ===
-load_dotenv()
-
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-OPENAI_API_KEY = os.getenv("OPEN_AI")
+# Constants
 INDEX_NAME = "laws-names"
-
-MONGO_URI = os.getenv("MONGO_URI")
-DATABASE_NAME = os.getenv("DATABASE_NAME")
 COLLECTION_NAME = "laws"
+OPENAI_API_KEY = os.getenv("OPEN_AI")
 
-st.set_page_config(page_title="Finding Suitable Law", page_icon="⚖️", layout="wide")
+# OpenAI Client
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
+# MongoDB Collection
+db = mongo_client[os.getenv("DATABASE_NAME")]
+collection = db[COLLECTION_NAME]
+
+# Pinecone Index
+index = pinecone_client.Index(INDEX_NAME)
+
+# === Styling ===
 st.markdown("""
     <style>
         .law-card {
@@ -67,39 +70,10 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# === Initialize Pinecone Client ===
-if not PINECONE_API_KEY:
-    st.error("Pinecone API key not found in environment variables.")
-    st.stop()
-
-pc = pinecone.Pinecone(api_key=PINECONE_API_KEY)
-st.info("Pinecone client initialized.")
-index = pc.Index(INDEX_NAME)
-
-# === Load Embedding Model ===
-st.info("Loading embedding model...")
-model = SentenceTransformer("intfloat/multilingual-e5-large")
-st.success("Embedding model loaded successfully.")
-
-# === Initialize OpenAI Client using new interface ===
-openai_client = openai.OpenAI(api_key=OPENAI_API_KEY)
-
-# === Connect to MongoDB ===
-try:
-    mongo_client = MongoClient(MONGO_URI)
-    db = mongo_client[DATABASE_NAME]
-    collection = db[COLLECTION_NAME]
-except Exception as e:
-    st.error(f"Failed to connect to MongoDB: {e}")
-    st.stop()
-
 # === Load full details for a single law ===
-def load_full_law_details(client, law_id):
+def load_full_law_details(law_id):
     try:
-        db = client[DATABASE_NAME]
-        collection = db[COLLECTION_NAME]
-        law = collection.find_one({"IsraelLawID": law_id})
-        return law
+        return collection.find_one({"IsraelLawID": law_id})
     except Exception as e:
         st.error(f"Error fetching full details for law ID {law_id}: {str(e)}")
         return None
@@ -130,13 +104,12 @@ def get_law_explanation(scenario, law_doc):
             temperature=0.7
         )
         output = response.choices[0].message.content.strip()
-        result = json.loads(output)
-        return result
+        return json.loads(output)
     except Exception as e:
         st.error(f"Error getting law explanation: {e}")
         return {"advice": "לא ניתן לקבל הסבר בשלב זה.", "score": "N/A"}
 
-# === UI: Ask for User Scenario ===
+# === Main Interface ===
 st.title("Finding Suitable Law")
 scenario = st.text_area("Describe your scenario (what you plan to do, your situation, etc.):")
 
@@ -156,7 +129,7 @@ if st.button("Find Suitable Laws") and scenario:
             israel_law_id = metadata.get("IsraelLawID")
             if israel_law_id is None:
                 continue
-            law_doc = load_full_law_details(mongo_client, israel_law_id)
+            law_doc = load_full_law_details(israel_law_id)
             if law_doc:
                 name = law_doc.get("Name", "No Name")
                 description = law_doc.get("Description", "אין תיאור לחוק זה")

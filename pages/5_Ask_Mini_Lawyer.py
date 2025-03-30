@@ -4,7 +4,7 @@ import torch
 from openai import OpenAI
 from dotenv import load_dotenv
 from datetime import datetime
-import pymongo
+from app_resources import mongo_client
 import uuid
 from streamlit_js import st_js, st_js_blocking
 
@@ -14,12 +14,9 @@ torch.classes.__path__ = []
 load_dotenv()
 
 # MongoDB connection setup
-MONGO_URI = os.getenv("MONGO_URI")
-DATABASE_NAME = os.getenv("DATABASE_NAME")
 
-client_mongo = pymongo.MongoClient(MONGO_URI)
-db = client_mongo[DATABASE_NAME]
-collection = db["conversations"]
+DATABASE_NAME = os.getenv("DATABASE_NAME")
+collection = mongo_client[DATABASE_NAME]["conversations"]
 
 # OpenAI API setup
 client_openai = OpenAI(api_key=os.getenv("OPEN_AI"))

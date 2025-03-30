@@ -1,5 +1,8 @@
 import streamlit as st
-import pymongo
+st.set_page_config(page_title="Mini Lawyer - Laws", page_icon="📜", layout="wide")
+
+
+from app_resources import mongo_client
 from dotenv import load_dotenv
 import os
 from datetime import datetime
@@ -12,7 +15,6 @@ MONGO_URI = os.getenv('MONGO_URI')
 DATABASE_NAME = os.getenv('DATABASE_NAME')
 COLLECTION_NAME = "laws"
 
-st.set_page_config(page_title="Mini Lawyer - Laws", page_icon="📜", layout="wide")
 
 # Custom CSS for Styling
 st.markdown("""
@@ -61,13 +63,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Initialize MongoDB connection
-def init_connection():
-    try:
-        return pymongo.MongoClient(MONGO_URI)
-    except Exception as e:
-        st.error(f"Failed to connect to MongoDB: {str(e)}")
-        return None
+
 
 # Query laws with pagination and filtering
 def query_laws(client, filters=None, skip=0, limit=10):
@@ -170,9 +166,7 @@ def main():
             "$lte": datetime.combine(end_date, datetime.max.time())
         }
 
-    client = init_connection()
-    if not client:
-        return
+    client = mongo_client
 
     # Query laws with loading animation
     with st.spinner("Loading laws..."):
@@ -213,7 +207,6 @@ def main():
     else:
         st.warning("No laws found with the applied filters.")
 
-    client.close()
 
 if __name__ == "__main__":
     main()

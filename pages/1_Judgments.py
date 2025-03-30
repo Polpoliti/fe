@@ -1,5 +1,8 @@
 import streamlit as st
-import pymongo
+
+st.set_page_config(page_title="Mini Lawyer - Judgments", page_icon="📜", layout="wide")
+
+from app_resources import mongo_client
 from dotenv import load_dotenv
 import os
 from datetime import datetime
@@ -12,7 +15,6 @@ MONGO_URI = os.getenv('MONGO_URI')
 DATABASE_NAME = os.getenv('DATABASE_NAME')
 COLLECTION_NAME = "judgments"
 
-st.set_page_config(page_title="Mini Lawyer - Judgments", page_icon="📜", layout="wide")
 
 # Custom CSS for Styling
 st.markdown("""
@@ -60,13 +62,6 @@ st.markdown("""
 
 
 # Initialize MongoDB connection
-def init_connection():
-    try:
-        return pymongo.MongoClient(MONGO_URI)
-    except Exception as e:
-        st.error(f"Failed to connect to MongoDB: {str(e)}")
-        return None
-
 
 # Query distinct ProcedureType values
 def get_procedure_types(client):
@@ -122,9 +117,7 @@ def main():
         st.session_state["page"] = 1
 
     # Connect to MongoDB
-    client = init_connection()
-    if not client:
-        return
+    client = mongo_client
 
     with st.spinner("Loading filters..."):
         procedure_types = get_procedure_types(client)
@@ -217,7 +210,6 @@ def main():
     else:
         st.warning("No judgments found with the applied filters.")
 
-    client.close()
 
 
 if __name__ == "__main__":

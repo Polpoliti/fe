@@ -1,9 +1,9 @@
 import streamlit as st
 from dotenv import load_dotenv
-import os
 
 # Load environment variables
 load_dotenv()
+
 
 st.set_page_config(page_title="Mini Lawyer", page_icon="⚖️", layout="wide")
 

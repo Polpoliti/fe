@@ -1,37 +1,38 @@
+import streamlit as st
+
+st.set_page_config(page_title="Finding Suitable Judgments", page_icon="📜", layout="wide")
+
 import os
 import torch
 
 # Fix for torch.classes error
 torch.classes.__path__ = []
 
-import streamlit as st
-
-st.set_page_config(page_title="Finding Suitable Judgments", page_icon="📜", layout="wide")
-# If set_page_config is already set by a parent app, the above call will be ignored.
-
-import pinecone
-from sentence_transformers import SentenceTransformer
-from pymongo import MongoClient
-from dotenv import load_dotenv
-from datetime import datetime
-import openai
+from app_resources import model, mongo_client, pinecone_client
+from openai import OpenAI
 import json
 
-# Disable parallelism in tokenizers to avoid warnings
+# Set page config
+
+# Disable tokenizers parallelism
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-# === Load Environment Variables ===
-load_dotenv()
-
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-OPENAI_API_KEY = os.getenv("OPEN_AI")
-# Use a separate index for judgments
+# Constants
 INDEX_NAME = "judgments-names"
-
-MONGO_URI = os.getenv("MONGO_URI")
-DATABASE_NAME = os.getenv("DATABASE_NAME")
 COLLECTION_NAME = "judgments"
+OPENAI_API_KEY = os.getenv("OPEN_AI")
 
+# OpenAI Client
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
+# Pinecone Index
+index = pinecone_client.Index(INDEX_NAME)
+
+# MongoDB Collection
+db = mongo_client[os.getenv("DATABASE_NAME")]
+collection = db[COLLECTION_NAME]
+
+# === UI Styling ===
 st.markdown("""
     <style>
         .law-card {
@@ -71,41 +72,11 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# === Initialize Pinecone Client ===
-if not PINECONE_API_KEY:
-    st.error("Pinecone API key not found in environment variables.")
-    st.stop()
-
-pc = pinecone.Pinecone(api_key=PINECONE_API_KEY)
-st.info("Pinecone client initialized.")
-index = pc.Index(INDEX_NAME)
-
-# === Load Embedding Model ===
-st.info("Loading embedding model...")
-model = SentenceTransformer("intfloat/multilingual-e5-large")
-st.success("Embedding model loaded successfully.")
-
-# === Initialize OpenAI Client using new interface ===
-openai_client = openai.OpenAI(api_key=OPENAI_API_KEY)
-
-# === Connect to MongoDB ===
-try:
-    mongo_client = MongoClient(MONGO_URI)
-    db = mongo_client[DATABASE_NAME]
-    collection = db[COLLECTION_NAME]
-    st.info(f"Connected to MongoDB collection: {COLLECTION_NAME}")
-except Exception as e:
-    st.error(f"Failed to connect to MongoDB: {e}")
-    st.stop()
-
 
 # === Load full details for a single judgment ===
-def load_full_judgment_details(client, case_number):
+def load_full_judgment_details(case_number):
     try:
-        db = client[DATABASE_NAME]
-        collection = db[COLLECTION_NAME]
-        judgment = collection.find_one({"CaseNumber": case_number})
-        return judgment
+        return collection.find_one({"CaseNumber": case_number})
     except Exception as e:
         st.error(f"Error fetching full details for CaseNumber {case_number}: {str(e)}")
         return None
@@ -137,14 +108,13 @@ def get_judgment_explanation(scenario, judgment_doc):
             temperature=0.7
         )
         output = response.choices[0].message.content.strip()
-        result = json.loads(output)
-        return result
+        return json.loads(output)
     except Exception as e:
         st.error(f"Error getting judgment explanation: {e}")
         return {"advice": "לא ניתן לקבל הסבר בשלב זה.", "score": "N/A"}
 
 
-# === UI: Ask for User Scenario ===
+# === Main Interface ===
 st.title("Finding Suitable Judgments")
 scenario = st.text_area("Describe your scenario (what you plan to do, your situation, etc.):")
 
@@ -157,6 +127,7 @@ if st.button("Find Suitable Judgments") and scenario:
             top_k=5,
             include_metadata=True
         )
+
     if query_response and query_response.get("matches"):
         st.markdown("### Suitable Judgments Found:")
         for match in query_response["matches"]:
@@ -164,7 +135,7 @@ if st.button("Find Suitable Judgments") and scenario:
             case_number = metadata.get("CaseNumber")
             if case_number is None:
                 continue
-            judgment_doc = load_full_judgment_details(mongo_client, case_number)
+            judgment_doc = load_full_judgment_details(case_number)
             if judgment_doc:
                 name = judgment_doc.get("Name", "No Name")
                 description = judgment_doc.get("Description", "אין תיאור לפסק הדין זה")
