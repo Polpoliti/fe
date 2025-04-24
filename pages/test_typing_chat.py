@@ -99,16 +99,27 @@ def delete_conversation(local_storage_id):
 
 def generate_response(user_input):
     try:
-        messages = [{"role": "system", "content": PROMPT_TEMPLATE}]
+        if "doc_summary" in st.session_state:
+            context = f"""
+            המסמך שהועלה עוסק בנושא הבא:
+            {st.session_state['doc_summary']}
+            אנא ענה על השאלה בהתאם לתוכן המסמך.
+            """
+        else:
+            context = PROMPT_TEMPLATE
+
+        messages = [{"role": "system", "content": context}]
         for msg in st.session_state['messages'][-5:]:
             messages.append({"role": msg['role'], "content": msg['content']})
         messages.append({"role": "user", "content": user_input})
+
         response = client_openai.chat.completions.create(
             model="gpt-4", messages=messages, max_tokens=700, temperature=0.7
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
         return f"שגיאה: {str(e)}"
+
 
 def display_messages():
     for msg in st.session_state['messages']:
