@@ -10,6 +10,8 @@ from streamlit_js import st_js, st_js_blocking
 
 import fitz  # PyMuPDF
 import docx  # Word reader
+import sys, os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # -----------------------------------
 # סגנון והגדרות
