@@ -157,6 +157,14 @@ def generate_response(user_input):
         model="gpt-4", messages=messages, max_tokens=700, temperature=0.7
     )
     return response.choices[0].message.content.strip()
+    
+def display_messages():
+    for msg in st.session_state['messages']:
+        role = "user-message" if msg['role'] == "user" else "bot-message"
+        st.markdown(
+            f"<div class='{role}'>{msg['content']}<div class='timestamp'>{msg['timestamp']}</div></div>",
+            unsafe_allow_html=True
+        )
 
 # ===== App =====
 st.markdown('<div class="chat-header">💬 Ask Mini Lawyer</div>', unsafe_allow_html=True)
