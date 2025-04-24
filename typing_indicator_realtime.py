@@ -14,7 +14,7 @@ import streamlit as st
 def show_typing_realtime(message="🤖 הבוט מקליד..."):
     """
     מציג אינדיקציית טעינה דינמית בזמן שהבוט מחפש תשובה.
-    מחזיר את placeholder שניתן למחוק מאוחר יותר.
+    מחזיר placeholder שניתן למחוק מאוחר יותר.
     """
     placeholder = st.empty()
     placeholder.markdown(f"<div style='color:gray; font-style:italic;'>{message}</div>", unsafe_allow_html=True)
