@@ -7,24 +7,27 @@ from datetime import datetime
 from app_resources import mongo_client
 import uuid
 from streamlit_js import st_js, st_js_blocking
-from app_resources import pinecone_client, model, mongo_client
+from app_resources import pinecone_client, model
 import json
 import fitz  # PyMuPDF
 import docx
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-JUDGMENT_INDEX = "judgments-names"
-judgment_index = pinecone_client.Index(JUDGMENT_INDEX)
-judgment_collection = mongo_client[DATABASE_NAME]["judgments"]
-
-torch.classes.__path__ = []
+# טעינת environment לפני שימוש במשתנים התלויים בו
 load_dotenv()
-client_openai = OpenAI(api_key=os.getenv("OPEN_AI"))
 DATABASE_NAME = os.getenv("DATABASE_NAME")
+
+# חיבורים למערכות
+client_openai = OpenAI(api_key=os.getenv("OPEN_AI"))
+judgment_index = pinecone_client.Index("judgments-names")
+judgment_collection = mongo_client[DATABASE_NAME]["judgments"]
 collection = mongo_client[DATABASE_NAME]["conversations"]
 
+# הגדרות Streamlit
+torch.classes.__path__ = []
 st.set_page_config(page_title="Ask Mini Lawyer", page_icon="💬", layout="wide")
+
 
 # ======================= סטייל =======================
 st.markdown("""
