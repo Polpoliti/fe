@@ -7,7 +7,7 @@ from datetime import datetime
 from app_resources import mongo_client
 import uuid
 from streamlit_js import st_js, st_js_blocking
-from typing_indicator_realtime import show_typing_realtime  # ✅ הוספנו את זה
+from typing_indicator_realtime import show_typing_realtime 
 
 # Fix for torch.classes error
 torch.classes.__path__ = []
