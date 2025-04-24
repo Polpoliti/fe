@@ -7,11 +7,16 @@ from datetime import datetime
 from app_resources import mongo_client
 import uuid
 from streamlit_js import st_js, st_js_blocking
-
+from app_resources import pinecone_client, model, mongo_client
+import json
 import fitz  # PyMuPDF
 import docx
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+JUDGMENT_INDEX = "judgments-names"
+judgment_index = pinecone_client.Index(JUDGMENT_INDEX)
+judgment_collection = mongo_client[DATABASE_NAME]["judgments"]
 
 torch.classes.__path__ = []
 load_dotenv()
@@ -134,17 +139,57 @@ def add_message(role, content):
         "role": role, "content": content, "timestamp": datetime.now().strftime("%H:%M:%S")
     })
 
+
+def find_relevant_judgments(text, top_k=3):
+    try:
+        embedding = model.encode([text], normalize_embeddings=True)[0]
+        results = judgment_index.query(vector=embedding.tolist(), top_k=top_k, include_metadata=True)
+        explanations = []
+        for match in results["matches"]:
+            metadata = match.get("metadata", {})
+            doc = judgment_collection.find_one({"CaseNumber": metadata.get("CaseNumber")})
+            if not doc:
+                continue
+            name = doc.get("Name", "")
+            desc = doc.get("Description", "")
+            prompt = f"""סצנה:
+{text}
+
+פסק דין:
+שם: {name}
+תיאור: {desc}
+
+מדוע פסק הדין רלוונטי לסיטואציה? דרג מ-0 עד 10 בפורמט JSON:
+{{"advice": "הסבר", "score": 8}}"""
+
+            gpt_reply = client_openai.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.5
+            )
+            parsed = json.loads(gpt_reply.choices[0].message.content.strip())
+            explanations.append(f"פסק דין: {name}\nהסבר: {parsed.get('advice', '')} (ציון: {parsed.get('score', '?')}/10)")
+        return explanations
+    except Exception as e:
+        return [f"שגיאה באחזור פסקי דין רלוונטיים: {str(e)}"]
+
 def generate_response(user_input):
     try:
         context = f"""
-        אתה עוזר משפטי מקצועי בדין הישראלי. 
-        ענה בקצרה, בעברית משפטית מקצועית, תוך שמירה על דיוק וניסוח תקין.
+        אתה עוזר משפטי מקצועי בדין הישראלי.
         {"המסמך מסוכם כך: " + st.session_state['doc_summary'] if "doc_summary" in st.session_state else ""}
         """
+
+        # ⬅️ כאן משולב חיפוש פסקי דין
+        related_judgments = find_relevant_judgments(user_input)
+        if related_judgments:
+            context += "\n\nפסקי דין רלוונטיים:\n" + "\n".join(related_judgments[:3])
+
         messages = [{"role": "system", "content": context}]
         for msg in st.session_state['messages'][-5:]:
             messages.append({"role": msg['role'], "content": msg['content']})
         messages.append({"role": "user", "content": user_input})
+
         response = client_openai.chat.completions.create(
             model="gpt-4", messages=messages, max_tokens=700, temperature=0.7
         )
