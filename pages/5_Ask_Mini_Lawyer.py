@@ -231,13 +231,12 @@ else:
 
  
    # Process GPT response
-if st.session_state['messages'] and st.session_state['messages'][-1]['role'] == "user":
-    typing_placeholder = show_typing_realtime()
-    assistant_response = generate_response(st.session_state['messages'][-1]['content'])
-    typing_placeholder.empty()
-    add_message("assistant", assistant_response)
-    save_conversation(local_storage_id, st.session_state["user_name"], st.session_state['messages'])
-    st.rerun()
+     if st.session_state['messages'] and st.session_state['messages'][-1]['role'] == "user":
+         with st.spinner("Analyzing..."):
+             assistant_response = generate_response(st.session_state['messages'][-1]['content'])
+         add_message("assistant", assistant_response)
+         save_conversation(local_storage_id, st.session_state["user_name"], st.session_state['messages'])
+         st.rerun()
 
 
     # Clear chat
