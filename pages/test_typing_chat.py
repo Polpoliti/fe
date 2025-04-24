@@ -152,6 +152,15 @@ def generate_response(user_input):
     except Exception as e:
         return f"שגיאה: {str(e)}"
 
+def display_messages():
+    for msg in st.session_state['messages']:
+        role = "user-message" if msg['role'] == "user" else "bot-message"
+        st.markdown(
+            f"<div class='{role}'>{msg['content']}<div class='timestamp'>{msg['timestamp']}</div></div>",
+            unsafe_allow_html=True
+        )
+
+
 # ======================= ריצה =======================
 
 PROMPT_TEMPLATE = "הנחיה כללית לעוזר משפטי – לא בשימוש כי נשלח context דינאמי."
