@@ -10,7 +10,7 @@ from streamlit_js import st_js, st_js_blocking
 
 import fitz  # PyMuPDF
 import docx  # Word reader
-import sys, os
+import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # -----------------------------------
@@ -190,6 +190,33 @@ else:
         if file_text:
             st.session_state["uploaded_doc_text"] = file_text
             st.success("הקובץ הועלה ונקרא בהצלחה!")
+
+    # 📋 סיכום אוטומטי של המסמך
+    if "uploaded_doc_text" in st.session_state:
+        if st.button("📋 סכם את המסמך"):
+            with st.spinner("GPT מסכם את המסמך..."):
+                summary_prompt = f"""
+                סכם עבורי את המסמך המשפטי הבא. הסבר מהו נושא המסמך, האם הוא חוזה / כתב תביעה / החלטה, ואילו סעיפים עיקריים בולטים בו.
+                ציין נקודות שראוי לשים לב אליהן (כמו בעיות, חוסרים, סיכונים). סכם בעברית משפטית מקצועית ובאופן תמציתי:
+
+                ---
+                {st.session_state['uploaded_doc_text']}
+                ---
+                """
+                try:
+                    response = client_openai.chat.completions.create(
+                        model="gpt-4",
+                        messages=[{"role": "user", "content": summary_prompt}],
+                        temperature=0.5
+                    )
+                    doc_summary = response.choices[0].message.content.strip()
+                    st.session_state["doc_summary"] = doc_summary
+                except Exception as e:
+                    st.error(f"שגיאה בקבלת סיכום: {e}")
+
+        if "doc_summary" in st.session_state:
+            st.markdown("### 🧾 סיכום המסמך:")
+            st.info(st.session_state["doc_summary"])
 
     # 🔽 טופס לשאלה
     with st.form(key="chat_form", clear_on_submit=True):
