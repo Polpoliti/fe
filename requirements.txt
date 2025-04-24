@@ -81,3 +81,4 @@ urllib3==2.2.3
 watchdog==6.0.0
 websockets==14.1
 PyMuPDF==1.23.9
+python-docx
