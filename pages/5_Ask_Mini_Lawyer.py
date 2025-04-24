@@ -7,7 +7,6 @@ from datetime import datetime
 from app_resources import mongo_client
 import uuid
 from streamlit_js import st_js, st_js_blocking
-from typing_indicator_realtime import show_typing_realtime
 
 # Fix for torch.classes error
 torch.classes.__path__ = []
@@ -229,15 +228,13 @@ else:
         save_conversation(local_storage_id, st.session_state["user_name"], st.session_state['messages'])
         st.rerun()
 
- 
-   # Process GPT response
-     if st.session_state['messages'] and st.session_state['messages'][-1]['role'] == "user":
-         with st.spinner("Analyzing..."):
-             assistant_response = generate_response(st.session_state['messages'][-1]['content'])
-         add_message("assistant", assistant_response)
-         save_conversation(local_storage_id, st.session_state["user_name"], st.session_state['messages'])
-         st.rerun()
-
+    # Process GPT response
+    if st.session_state['messages'] and st.session_state['messages'][-1]['role'] == "user":
+        with st.spinner("Analyzing..."):
+            assistant_response = generate_response(st.session_state['messages'][-1]['content'])
+        add_message("assistant", assistant_response)
+        save_conversation(local_storage_id, st.session_state["user_name"], st.session_state['messages'])
+        st.rerun()
 
     # Clear chat
     if st.button("Clear Chat"):
