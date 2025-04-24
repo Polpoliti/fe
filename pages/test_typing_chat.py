@@ -4,144 +4,85 @@ import torch
 from openai import OpenAI
 from dotenv import load_dotenv
 from datetime import datetime
-from app_resources import mongo_client
+from app_resources import mongo_client, pinecone_client, model
 import uuid
 from streamlit_js import st_js, st_js_blocking
-from app_resources import pinecone_client, model
 import json
-import fitz  # PyMuPDF
+import fitz
 import docx
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-# טעינת environment לפני שימוש במשתנים התלויים בו
+# Load environment variables early
 load_dotenv()
 DATABASE_NAME = os.getenv("DATABASE_NAME")
-
-# חיבורים למערכות
 client_openai = OpenAI(api_key=os.getenv("OPEN_AI"))
-judgment_index = pinecone_client.Index("judgments-names")
-judgment_collection = mongo_client[DATABASE_NAME]["judgments"]
-collection = mongo_client[DATABASE_NAME]["conversations"]
 
-# הגדרות Streamlit
+# External sources
+judgment_index = pinecone_client.Index("judgments-names")
+law_index = pinecone_client.Index("laws-names")
+judgment_collection = mongo_client[DATABASE_NAME]["judgments"]
+law_collection = mongo_client[DATABASE_NAME]["laws"]
+conversation_collection = mongo_client[DATABASE_NAME]["conversations"]
+
 torch.classes.__path__ = []
 st.set_page_config(page_title="Ask Mini Lawyer", page_icon="💬", layout="wide")
 
-
-# ======================= סטייל =======================
+# ===== UI Style =====
 st.markdown("""
 <style>
-    .chat-container {
-        background-color: #1E1E1E; padding: 20px; border-radius: 10px; box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2);
-    }
-    .chat-header {
-        color: #4CAF50; font-size: 36px; font-weight: bold; text-align: center;
-    }
-    .user-message {
-        background-color: #4CAF50; color: #ecf2f8; padding: 10px; border-radius: 10px; margin: 10px 20px; text-align: left; width: 60%;
-    }
-    .bot-message {
-        background-color: #44475a; color: #ecf2f8; padding: 10px; border-radius: 10px; margin: 10px 20px; text-align: left; width: 60%;
-    }
-    .timestamp {
-        font-size: 0.8em; color: #bbbbbb; margin-top: 5px;
-    }
-    .footer {
-        text-align: center; color: #bbbbbb; font-size: 0.9em; margin-top: 20px;
-    }
+    .chat-container {background-color: #1E1E1E; padding: 20px; border-radius: 10px;}
+    .chat-header {color: #4CAF50; font-size: 36px; font-weight: bold; text-align: center;}
+    .user-message {background-color: #4CAF50; color: #ecf2f8; padding: 10px; border-radius: 10px; margin: 10px;}
+    .bot-message {background-color: #44475a; color: #ecf2f8; padding: 10px; border-radius: 10px; margin: 10px;}
+    .timestamp {font-size: 0.8em; color: #bbb;}
 </style>
 """, unsafe_allow_html=True)
 
-# ======================= פונקציות =======================
+# ===== Functions =====
 def get_localstorage_value(key): return st_js_blocking(f"return localStorage.getItem('{key}');", key="get_" + key)
 def set_localstorage_value(key, value): st_js(f"localStorage.setItem('{key}', '{value}');")
 
 def get_or_create_chat_id():
-    if 'current_chat_id' not in st.session_state: st.session_state.current_chat_id = None
-    chat_id = get_localstorage_value("MiniLawyerChatId")
-    if chat_id in (None, "null"):
-        new_id = str(uuid.uuid4())
-        set_localstorage_value("MiniLawyerChatId", new_id)
-        st.session_state.current_chat_id = new_id
-        st.rerun()
-    else:
+    if 'current_chat_id' not in st.session_state:
+        chat_id = get_localstorage_value("MiniLawyerChatId")
+        if not chat_id or chat_id == "null":
+            chat_id = str(uuid.uuid4())
+            set_localstorage_value("MiniLawyerChatId", chat_id)
         st.session_state.current_chat_id = chat_id
-        return chat_id
+    return st.session_state.current_chat_id
 
-def save_conversation(local_storage_id, user_name, messages):
-    try:
-        collection.update_one(
-            {"local_storage_id": local_storage_id},
-            {"$set": {"local_storage_id": local_storage_id, "user_name": user_name, "messages": messages}},
-            upsert=True
-        )
-    except Exception as e:
-        st.error(f"שגיאה בשמירת שיחה: {e}")
+def save_conversation(chat_id, user_name, messages):
+    conversation_collection.update_one(
+        {"local_storage_id": chat_id},
+        {"$set": {"local_storage_id": chat_id, "user_name": user_name, "messages": messages}},
+        upsert=True
+    )
 
-def load_conversation(local_storage_id):
-    try:
-        conversation = collection.find_one({"local_storage_id": local_storage_id})
-        if conversation:
-            st.session_state['user_name'] = conversation['user_name']
-            return conversation.get('messages', [])
-        return []
-    except Exception as e:
-        st.error(f"שגיאה בטעינה: {e}")
-        return []
+def load_conversation(chat_id):
+    convo = conversation_collection.find_one({"local_storage_id": chat_id})
+    return convo.get('messages', []) if convo else []
 
-def delete_conversation(local_storage_id):
-    try:
-        collection.delete_one({"local_storage_id": local_storage_id})
-        st_js("localStorage.clear();")
-        st.session_state.current_chat_id = None
-    except Exception as e:
-        st.error(f"שגיאה במחיקת שיחה: {e}")
+def delete_conversation(chat_id):
+    conversation_collection.delete_one({"local_storage_id": chat_id})
+    st_js("localStorage.clear();")
+    st.session_state.current_chat_id = None
 
 def read_pdf(file):
-    text = ""
-    with fitz.open(stream=file.read(), filetype="pdf") as doc:
-        for page in doc:
-            text += page.get_text()
-    return text
+    return "".join([page.get_text() for page in fitz.open(stream=file.read(), filetype="pdf")])
 
 def read_docx(file):
-    text = ""
-    doc = docx.Document(file)
-    for para in doc.paragraphs:
-        text += para.text + "\n"
-    return text
+    return "\n".join([p.text for p in docx.Document(file).paragraphs])
 
-def show_typing_realtime(message="🤖 הבוט מקליד..."):
-    placeholder = st.empty()
-    placeholder.markdown(f"<div style='color:gray; font-style:italic;'>{message}</div>", unsafe_allow_html=True)
-    return placeholder
-
-def format_professional_response(text):
-    return f"""### ⚖️ תשובה משפטית:
-
-{text.strip()}
-
----
-
-*הבהרה: מענה זה מהווה מידע משפטי כללי ואינו מחליף ייעוץ משפטי.*
-"""
-
-def format_contract_summary(summary_text):
-    return f"""### 🧾 סיכום מקצועי של המסמך:
-
-{summary_text.strip()}
-
----
-
-*הסיכום נערך אוטומטית ואינו מחליף בדיקה פרטנית של עורך דין.*
-"""
+def show_typing_realtime(msg="🤖 הבוט מקליד..."):
+    ph = st.empty()
+    ph.markdown(f"<div style='color:gray;'>{msg}</div>", unsafe_allow_html=True)
+    return ph
 
 def add_message(role, content):
     st.session_state['messages'].append({
         "role": role, "content": content, "timestamp": datetime.now().strftime("%H:%M:%S")
     })
-
 
 def find_relevant_judgments(text, top_k=3):
     try:
@@ -149,13 +90,12 @@ def find_relevant_judgments(text, top_k=3):
         results = judgment_index.query(vector=embedding.tolist(), top_k=top_k, include_metadata=True)
         explanations = []
         for match in results["matches"]:
-            metadata = match.get("metadata", {})
-            doc = judgment_collection.find_one({"CaseNumber": metadata.get("CaseNumber")})
-            if not doc:
-                continue
-            name = doc.get("Name", "")
-            desc = doc.get("Description", "")
-            prompt = f"""סצנה:
+            meta = match.get("metadata", {})
+            doc = judgment_collection.find_one({"CaseNumber": meta.get("CaseNumber")})
+            if doc:
+                name = doc.get("Name", "")
+                desc = doc.get("Description", "")
+                prompt = f"""סצנה:
 {text}
 
 פסק דין:
@@ -164,152 +104,119 @@ def find_relevant_judgments(text, top_k=3):
 
 מדוע פסק הדין רלוונטי לסיטואציה? דרג מ-0 עד 10 בפורמט JSON:
 {{"advice": "הסבר", "score": 8}}"""
-
-            gpt_reply = client_openai.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.5
-            )
-            parsed = json.loads(gpt_reply.choices[0].message.content.strip())
-            explanations.append(f"פסק דין: {name}\nהסבר: {parsed.get('advice', '')} (ציון: {parsed.get('score', '?')}/10)")
+                reply = client_openai.chat.completions.create(
+                    model="gpt-3.5-turbo", messages=[{"role": "user", "content": prompt}], temperature=0.5
+                )
+                parsed = json.loads(reply.choices[0].message.content.strip())
+                explanations.append(f"פסק דין: {name}\nהסבר: {parsed['advice']} (ציון: {parsed['score']}/10)")
         return explanations
     except Exception as e:
-        return [f"שגיאה באחזור פסקי דין רלוונטיים: {str(e)}"]
+        return [f"שגיאה באחזור פסקי דין: {e}"]
+
+def find_relevant_laws(text, top_k=3):
+    try:
+        embedding = model.encode([text], normalize_embeddings=True)[0]
+        results = law_index.query(vector=embedding.tolist(), top_k=top_k, include_metadata=True)
+        explanations = []
+        for match in results["matches"]:
+            meta = match.get("metadata", {})
+            doc = law_collection.find_one({"IsraelLawID": meta.get("IsraelLawID")})
+            if doc:
+                name = doc.get("Name", "")
+                desc = doc.get("Description", "")
+                prompt = f"""סצנה:
+{text}
+
+חוק:
+שם: {name}
+תיאור: {desc}
+
+מדוע החוק רלוונטי לסיטואציה? החזר בפורמט JSON:
+{{"advice": "הסבר", "score": 8}}"""
+                reply = client_openai.chat.completions.create(
+                    model="gpt-3.5-turbo", messages=[{"role": "user", "content": prompt}], temperature=0.5
+                )
+                parsed = json.loads(reply.choices[0].message.content.strip())
+                explanations.append(f"חוק: {name}\nהסבר: {parsed['advice']} (ציון: {parsed['score']}/10)")
+        return explanations
+    except Exception as e:
+        return [f"שגיאה באחזור חוקים: {e}"]
 
 def generate_response(user_input):
-    try:
-        context = f"""
-        אתה עוזר משפטי מקצועי בדין הישראלי.
-        {"המסמך מסוכם כך: " + st.session_state['doc_summary'] if "doc_summary" in st.session_state else ""}
-        """
+    context = "אתה עוזר משפטי מקצועי בדין הישראלי. ענה בקצרה ובמדויק."
+    if "doc_summary" in st.session_state:
+        context += f"\nהמסמך מסוכם כך: {st.session_state['doc_summary']}"
+    judgments = find_relevant_judgments(user_input)
+    laws = find_relevant_laws(user_input)
+    context += "\n\n📚 פסקי דין רלוונטיים:\n" + "\n".join(judgments)
+    context += "\n\n⚖️ חוקים רלוונטיים:\n" + "\n".join(laws)
+    messages = [{"role": "system", "content": context}]
+    messages += [{"role": m["role"], "content": m["content"]} for m in st.session_state["messages"][-5:]]
+    messages.append({"role": "user", "content": user_input})
+    response = client_openai.chat.completions.create(
+        model="gpt-4", messages=messages, max_tokens=700, temperature=0.7
+    )
+    return response.choices[0].message.content.strip()
 
-        # ⬅️ כאן משולב חיפוש פסקי דין
-        related_judgments = find_relevant_judgments(user_input)
-        if related_judgments:
-            context += "\n\nפסקי דין רלוונטיים:\n" + "\n".join(related_judgments[:3])
-
-        messages = [{"role": "system", "content": context}]
-        for msg in st.session_state['messages'][-5:]:
-            messages.append({"role": msg['role'], "content": msg['content']})
-        messages.append({"role": "user", "content": user_input})
-
-        response = client_openai.chat.completions.create(
-            model="gpt-4", messages=messages, max_tokens=700, temperature=0.7
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        return f"שגיאה: {str(e)}"
-
-def display_messages():
-    for msg in st.session_state['messages']:
-        role = "user-message" if msg['role'] == "user" else "bot-message"
-        st.markdown(
-            f"<div class='{role}'>{msg['content']}<div class='timestamp'>{msg['timestamp']}</div></div>",
-            unsafe_allow_html=True
-        )
-
-
-# ======================= ריצה =======================
-
-PROMPT_TEMPLATE = "הנחיה כללית לעוזר משפטי – לא בשימוש כי נשלח context דינאמי."
-
+# ===== App =====
 st.markdown('<div class="chat-header">💬 Ask Mini Lawyer</div>', unsafe_allow_html=True)
-local_storage_id = get_or_create_chat_id()
-
+chat_id = get_or_create_chat_id()
 if "user_name" not in st.session_state:
     st.session_state["user_name"] = None
 if "messages" not in st.session_state:
-    st.session_state["messages"] = load_conversation(local_storage_id)
+    st.session_state["messages"] = load_conversation(chat_id)
 
-# התחברות
 if not st.session_state["user_name"]:
-    with st.form(key="user_name_form", clear_on_submit=True):
-        user_name_input = st.text_input("הכנס שם להתחלת שיחה:")
-        submitted_name = st.form_submit_button("התחל שיחה")
-    if submitted_name and user_name_input:
-        st.session_state["user_name"] = user_name_input.strip()
-        add_message("assistant", f"שלום {user_name_input}, איך אפשר לעזור?")
-        save_conversation(local_storage_id, user_name_input, st.session_state['messages'])
-        st.rerun()
-
-# ממשק מלא
+    with st.form("user_name_form"):
+        name = st.text_input("הכנס שם להתחלת שיחה:")
+        if st.form_submit_button("התחל שיחה") and name:
+            st.session_state["user_name"] = name
+            add_message("assistant", f"שלום {name}, איך אפשר לעזור?")
+            save_conversation(chat_id, name, st.session_state["messages"])
+            st.rerun()
 else:
     with st.container():
         st.markdown('<div class="chat-container">', unsafe_allow_html=True)
         display_messages()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    uploaded_file = st.file_uploader("📄 העלה מסמך משפטי לניתוח", type=["pdf", "docx"])
+    uploaded_file = st.file_uploader("📄 העלה מסמך משפטי", type=["pdf", "docx"])
     if uploaded_file:
-        if uploaded_file.type == "application/pdf":
-            file_text = read_pdf(uploaded_file)
-        elif uploaded_file.type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/msword"]:
-            file_text = read_docx(uploaded_file)
-        else:
-            file_text = ""
-        if file_text:
-            st.session_state["uploaded_doc_text"] = file_text
-            st.success("הקובץ הועלה ונקרא בהצלחה!")
+        st.session_state["uploaded_doc_text"] = read_pdf(uploaded_file) if uploaded_file.type == "application/pdf" else read_docx(uploaded_file)
+        st.success("המסמך נטען בהצלחה!")
 
-    if "uploaded_doc_text" in st.session_state:
-        if st.button("📋 סכם את המסמך"):
-            with st.spinner("GPT מסכם את המסמך..."):
-                summary_prompt = f"""
-                סכם עבורי את המסמך המשפטי הבא. הסבר מהו נושא המסמך, האם הוא חוזה / כתב תביעה / החלטה, ואילו סעיפים עיקריים בולטים בו.
-                ציין נקודות שראוי לשים לב אליהן. סכם בעברית משפטית מקצועית ובאופן תמציתי:
-                ---
-                {st.session_state['uploaded_doc_text']}
-                """
-                try:
-                    response = client_openai.chat.completions.create(
-                        model="gpt-4",
-                        messages=[{"role": "user", "content": summary_prompt}],
-                        temperature=0.5
-                    )
-                    doc_summary = response.choices[0].message.content.strip()
-                    st.session_state["doc_summary"] = doc_summary
-                except Exception as e:
-                    st.error(f"שגיאה בקבלת סיכום: {e}")
+    if "uploaded_doc_text" in st.session_state and st.button("📋 סכם את המסמך"):
+        with st.spinner("GPT מסכם את המסמך..."):
+            summary_prompt = f"""סכם את המסמך המשפטי הבא בקצרה:
+---
+{st.session_state['uploaded_doc_text']}
+"""
+            response = client_openai.chat.completions.create(
+                model="gpt-4", messages=[{"role": "user", "content": summary_prompt}], temperature=0.5
+            )
+            st.session_state["doc_summary"] = response.choices[0].message.content.strip()
 
-        if "doc_summary" in st.session_state:
-            formatted_summary = format_contract_summary(st.session_state["doc_summary"])
-            st.markdown(formatted_summary, unsafe_allow_html=True)
+    if "doc_summary" in st.session_state:
+        st.markdown("### סיכום המסמך:")
+        st.info(st.session_state["doc_summary"])
 
-    with st.form(key="chat_form", clear_on_submit=True):
-        user_input = st.text_area("הכנס שאלה משפטית או שאלה על המסמך שהועלה", height=100)
-        submitted = st.form_submit_button("שלח שאלה")
-
-    if submitted and user_input.strip():
-        final_input = user_input
-        if "uploaded_doc_text" in st.session_state:
-            final_input = f"""
-            שאלה על מסמך:
-            {st.session_state['uploaded_doc_text']}
-
-            השאלה היא:
-            {user_input}
-            """
-        add_message("user", user_input)
-        save_conversation(local_storage_id, st.session_state["user_name"], st.session_state['messages'])
-        st.rerun()
+    with st.form("chat_form"):
+        user_input = st.text_area("הכנס שאלה משפטית", height=100)
+        if st.form_submit_button("שלח שאלה") and user_input.strip():
+            add_message("user", user_input)
+            save_conversation(chat_id, st.session_state["user_name"], st.session_state["messages"])
+            st.rerun()
 
     if st.session_state['messages'] and st.session_state['messages'][-1]['role'] == "user":
-        typing_placeholder = show_typing_realtime()
-        assistant_response = generate_response(st.session_state['messages'][-1]['content'])
-        typing_placeholder.empty()
-        formatted_response = format_professional_response(assistant_response)
-        add_message("assistant", formatted_response)
-        save_conversation(local_storage_id, st.session_state["user_name"], st.session_state['messages'])
+        typing = show_typing_realtime()
+        response = generate_response(st.session_state['messages'][-1]['content'])
+        typing.empty()
+        add_message("assistant", response)
+        save_conversation(chat_id, st.session_state["user_name"], st.session_state["messages"])
         st.rerun()
 
     if st.button("🗑 נקה שיחה"):
-        delete_conversation(local_storage_id)
-        st.session_state['messages'] = []
-        st.session_state['user_name'] = None
+        delete_conversation(chat_id)
+        st.session_state["messages"] = []
+        st.session_state["user_name"] = None
         st.rerun()
-
-    st.markdown("""
-        <div class="footer">
-            <p><strong>הבהרה:</strong> מדובר בסיוע משפטי כללי בלבד ואינו מחליף ייעוץ מקצועי מעורך דין.</p>
-        </div>
-    """, unsafe_allow_html=True)
