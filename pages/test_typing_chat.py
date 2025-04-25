@@ -1,3 +1,4 @@
+# ✅ Full updated code for Ask Mini Lawyer with all additions
 import os
 import streamlit as st
 import torch
@@ -10,6 +11,7 @@ from streamlit_js import st_js, st_js_blocking
 import json
 import fitz
 import docx
+from fpdf import FPDF
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -157,16 +159,52 @@ def generate_response(user_input):
         model="gpt-4", messages=messages, max_tokens=700, temperature=0.7
     )
     return response.choices[0].message.content.strip()
-    
-def display_messages():
+
+def export_pdf(filename="summary.pdf"):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+
+    if "doc_summary" in st.session_state:
+        pdf.multi_cell(0, 10, f"סיכום המסמך:\n{st.session_state['doc_summary']}\n\n")
+
+    pdf.cell(0, 10, "שאלות ותשובות:", ln=True)
     for msg in st.session_state['messages']:
+        role = "👤 שאלה" if msg['role'] == "user" else "🤖 תשובה"
+        pdf.multi_cell(0, 10, f"{role}:\n{msg['content']}\n")
+
+    if "doc_judgments" in st.session_state:
+        pdf.cell(0, 10, "פסקי דין רלוונטיים:", ln=True)
+        for j in st.session_state["doc_judgments"]:
+            pdf.multi_cell(0, 10, f"- {j}")
+
+    if "doc_laws" in st.session_state:
+        pdf.cell(0, 10, "חוקים רלוונטיים:", ln=True)
+        for l in st.session_state["doc_laws"]:
+            pdf.multi_cell(0, 10, f"- {l}")
+
+    filepath = os.path.join("outputs", filename)
+    os.makedirs("outputs", exist_ok=True)
+    pdf.output(filepath)
+    return filepath
+
+def display_messages():
+    for i, msg in enumerate(st.session_state['messages']):
         role = "user-message" if msg['role'] == "user" else "bot-message"
         st.markdown(
             f"<div class='{role}'>{msg['content']}<div class='timestamp'>{msg['timestamp']}</div></div>",
             unsafe_allow_html=True
         )
+        if msg["role"] == "assistant":
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                if st.button("👍", key=f"like_{i}"):
+                    st.success("תודה על הדירוג!")
+            with col2:
+                if st.button("👎", key=f"dislike_{i}"):
+                    st.warning("תודה, נשפר בהמשך.")
 
-# ===== App =====
+# ===== App Logic =====
 st.markdown('<div class="chat-header">💬 Ask Mini Lawyer</div>', unsafe_allow_html=True)
 chat_id = get_or_create_chat_id()
 if "user_name" not in st.session_state:
@@ -207,6 +245,36 @@ else:
     if "doc_summary" in st.session_state:
         st.markdown("### סיכום המסמך:")
         st.info(st.session_state["doc_summary"])
+
+        with st.spinner("מאחזר פסקי דין וחוקים למסמך..."):
+            st.session_state["doc_judgments"] = find_relevant_judgments(st.session_state["doc_summary"])
+            st.session_state["doc_laws"] = find_relevant_laws(st.session_state["doc_summary"])
+
+        if st.button("📚 הצג חוקים ופסקי דין למסמך"):
+            st.subheader("📚 פסקי דין שנמצאו:")
+            for j in st.session_state.get("doc_judgments", []):
+                st.markdown(f"- {j}")
+            st.subheader("⚖️ חוקים שנמצאו:")
+            for l in st.session_state.get("doc_laws", []):
+                st.markdown(f"- {l}")
+
+        if st.button("🔍 ניתוח לפי סעיפים"):
+            paragraphs = st.session_state["uploaded_doc_text"].split("\n")
+            for i, p in enumerate([p for p in paragraphs if len(p.strip()) > 50]):
+                st.markdown(f"#### סעיף {i+1}: {p.strip()[:100]}...")
+                laws = find_relevant_laws(p)
+                judgments = find_relevant_judgments(p)
+                with st.expander("פסקי דין"):
+                    for j in judgments:
+                        st.markdown(f"- {j}")
+                with st.expander("חוקים"):
+                    for l in laws:
+                        st.markdown(f"- {l}")
+
+        if st.button("📄 ייצא הכל כ-PDF"):
+            path = export_pdf()
+            with open(path, "rb") as f:
+                st.download_button("📅 הורד PDF", f, file_name="legal_summary.pdf")
 
     with st.form("chat_form"):
         user_input = st.text_area("הכנס שאלה משפטית", height=100)
